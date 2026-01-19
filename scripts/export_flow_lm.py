@@ -1,11 +1,3 @@
-"""
-Export FlowLM as THREE separate models to avoid tracing loop issues:
-1. flow_lm_cond.onnx: For conditioning (updates state via backbone).
-2. flow_lm_ar_step.onnx: AR Backbone step. Updates state, returns conditioning vector `c` and `eos`.
-3. flow_lm_flow.onnx: Stateless FlowNet step. Takes `c`, `s`, `t`, `x`. Returns `flow_dir`.
-
-Client logic implements the LSD loop using `flow_lm_flow.onnx`.
-"""
 import argparse
 import sys
 import torch
