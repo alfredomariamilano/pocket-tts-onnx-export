@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ WEIGHTS_FILENAME = "tts_b6369a24.safetensors"
 TOKENIZER_MODEL_FILENAME = "tokenizer.model"
 TOKENIZER_JSON_FILENAME = "tokenizer.json"
 TOKENIZER_CONFIG_FILENAME = "tokenizer_config.json"
+HF_README_TEMPLATE = Path("HF_README.md")
 
 
 def _load_hf_token() -> str | None:
@@ -144,6 +146,17 @@ def export_tokenizer_json():
             f"{TOKENIZER_CONFIG_FILENAME}): {e}"
         )
 
+
+def export_hf_readme(template_path: Path = HF_README_TEMPLATE):
+    if not template_path.exists():
+        print(f"⚠️ README template not found: {template_path}. Skipping model card export.")
+        return
+
+    readme_path = OUTPUT_DIR / "README.md"
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    shutil.copyfile(template_path, readme_path)
+    print(f"✅ Exported model card: {readme_path}")
+
 def run_export_scripts():
     print(f"\n--- Running Export Scripts ---")
     
@@ -237,6 +250,7 @@ if __name__ == "__main__":
 
     install_check()
     download_weights()
+    export_hf_readme()
     export_tokenizer_json()
     run_export_scripts()
     

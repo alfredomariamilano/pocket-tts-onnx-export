@@ -15,7 +15,8 @@ ONNX export artifacts for Pocket TTS.
 
 ## Contents
 
-- tokenizer.json (for @huggingface/tokenizers compatibility)
+- tokenizer.json
+- tokenizer_config.json
 - onnx/flow_lm_main.onnx
 - onnx/flow_lm_flow.onnx
 - onnx/mimi_encoder.onnx
@@ -23,15 +24,13 @@ ONNX export artifacts for Pocket TTS.
 - onnx/text_conditioner.onnx
 - optional *_int8.onnx quantized variants
 
+## Tokenizer Export
+
+- Exported from SentencePiece `tokenizer.model` using SentencePiece Unigram.
+- Special token behavior is explicit (no implicit BOS/EOS append).
+- Designed for parity with raw SentencePiece IDs for ONNX text conditioner input.
+
 ## Attribution
 
-This repository is derived from Kyutai's Pocket TTS model:
-https://huggingface.co/kyutai/pocket-tts
-
-## License
-
-This model card uses the same license field as the upstream model card:
-cc-by-4.0
-
-Also follow upstream usage conditions and prohibited-use policy documented at:
+Derived from Kyutai Pocket TTS:
 https://huggingface.co/kyutai/pocket-tts
