@@ -4,7 +4,8 @@ __pycache__/
 .venv/
 venv/
 
-hf
+hf/*
+!hf/README.md
 .env
 .agents
 # Large Weights (Download them via export.py)
