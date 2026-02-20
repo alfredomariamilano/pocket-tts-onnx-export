@@ -21,7 +21,7 @@ This package provides a robust pipeline to export **PocketTTS** models to ONNX (
 
 ## Output Artifacts
 
-The pipeline generates **5 ONNX models + 1 tokenizer artifact** under `hf/`:
+The pipeline generates **5 ONNX models + 2 tokenizer artifacts** under `hf/`:
 
 | Model | Description | Reasoning |
 | :--- | :--- | :--- |
@@ -30,7 +30,8 @@ The pipeline generates **5 ONNX models + 1 tokenizer artifact** under `hf/`:
 | **`flow_lm_main.onnx`** | Transformer Backbone | **Stateful AR**. Updates KV-cache and steps. Returns conditioning vector. |
 | **`flow_lm_flow.onnx`** | Flow Matching Net | **Stateless**. Solves the ODE step ($v = f(x, t, c)$). |
 | **`mimi_decoder.onnx`** | Latents → Audio | Streaming neural codec decoder. |
-| **`tokenizer.json`** | SentencePiece tokenizer (HF JSON) | Written to `hf/tokenizer.json`, compatible with `@huggingface/tokenizers` in JS runtimes. |
+| **`tokenizer.json`** | SentencePiece-Unigram tokenizer (HF JSON) | Written to `hf/tokenizer.json`, compatible with `@huggingface/tokenizers` in JS runtimes. |
+| **`tokenizer_config.json`** | Tokenizer runtime metadata | Defines model family + special-token defaults used by downstream runtimes. |
 
 All ONNX models are written to `hf/onnx/`.
 
@@ -50,6 +51,22 @@ The original PyTorch code uses stateful modules (e.g., `StreamingMultiheadAttent
 ### 3. Safe Quantization
 We use **Dynamic Quantization** targeting `MatMul` (Matrix Multiplication) operators only.
 *   **Why?** This ensures broad compatibility (e.g., older CPUs, WebAssembly) and avoids issues with specific operators (like `ConvInteger`) that can be problematic or slow on certain execution providers. It reduces model size by ~70% with negligible quality loss.
+
+### 4. Tokenizer Export Parity (SentencePiece)
+Tokenizer export is generated from `weights/tokenizer.model` using the **SentencePiece Unigram** model family and written to `hf/tokenizer.json`.
+
+Export assumptions for ONNX inference:
+1. `tokenizer.model` is the source of truth for token IDs.
+2. No template post-processing is injected (no implicit EOS/BOS append).
+3. Runtime tokenization should map text directly to raw IDs consumed by the text conditioner.
+
+Validation command:
+
+```bash
+uv run python scripts/tokenizer_parity.py
+```
+
+This checks ID parity between `tokenizer.model` and `tokenizer.json` on mixed text samples and verifies deterministic output across repeated runs.
 
 ## Credits & License
 

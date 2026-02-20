@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,7 @@ REPO_ID = "kyutai/pocket-tts"
 WEIGHTS_FILENAME = "tts_b6369a24.safetensors"
 TOKENIZER_MODEL_FILENAME = "tokenizer.model"
 TOKENIZER_JSON_FILENAME = "tokenizer.json"
+TOKENIZER_CONFIG_FILENAME = "tokenizer_config.json"
 
 
 def _load_hf_token() -> str | None:
@@ -84,6 +86,7 @@ def download_weights():
 def export_tokenizer_json():
     tokenizer_model_path = WEIGHTS_DIR / TOKENIZER_MODEL_FILENAME
     tokenizer_json_path = OUTPUT_DIR / TOKENIZER_JSON_FILENAME
+    tokenizer_config_path = OUTPUT_DIR / TOKENIZER_CONFIG_FILENAME
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     if not tokenizer_model_path.exists():
@@ -91,13 +94,55 @@ def export_tokenizer_json():
         return
 
     try:
-        from transformers import T5TokenizerFast
+        import sys
 
-        tokenizer = T5TokenizerFast(vocab_file=str(tokenizer_model_path))
-        tokenizer.backend_tokenizer.save(str(tokenizer_json_path))
+        import sentencepiece as spm
+        import sentencepiece.sentencepiece_model_pb2 as sp_pb2
+        from tokenizers import SentencePieceUnigramTokenizer
+
+        sys.modules.setdefault("sentencepiece_model_pb2", sp_pb2)
+
+        tokenizer = SentencePieceUnigramTokenizer.from_spm(str(tokenizer_model_path))
+        tokenizer.normalizer = None
+        tokenizer.save(str(tokenizer_json_path))
         print(f"✅ Exported tokenizer JSON: {tokenizer_json_path}")
+
+        sp = spm.SentencePieceProcessor(model_file=str(tokenizer_model_path))
+
+        def _safe_piece(piece_id: int, fallback: str | None) -> str | None:
+            if piece_id < 0:
+                return fallback
+            return sp.id_to_piece(piece_id)
+
+        unk_token = _safe_piece(sp.unk_id(), "<unk>")
+        pad_token = _safe_piece(sp.pad_id(), "<pad>")
+        eos_token = _safe_piece(sp.eos_id(), "</s>")
+        bos_token = _safe_piece(sp.bos_id(), None)
+
+        tokenizer_config = {
+            "tokenizer_class": "PreTrainedTokenizerFast",
+            "model_max_length": 4096,
+            "padding_side": "right",
+            "truncation_side": "right",
+            "model_input_names": ["input_ids", "attention_mask"],
+            "unk_token": unk_token,
+            "pad_token": pad_token,
+            "eos_token": eos_token,
+            "bos_token": bos_token,
+            "add_bos_token": False,
+            "add_eos_token": False,
+            "legacy": False,
+        }
+        tokenizer_config_path.write_text(
+            json.dumps(tokenizer_config, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"✅ Exported tokenizer config: {tokenizer_config_path}")
     except Exception as e:
-        print(f"⚠️ Failed to export {TOKENIZER_JSON_FILENAME}: {e}")
+        print(
+            f"⚠️ Failed to export tokenizer artifacts ({TOKENIZER_JSON_FILENAME}, "
+            f"{TOKENIZER_CONFIG_FILENAME}): {e}"
+        )
 
 def run_export_scripts():
     print(f"\n--- Running Export Scripts ---")
@@ -172,8 +217,11 @@ def print_summary():
     if OUTPUT_DIR.exists():
         output_files = list(ONNX_DIR.glob("*.onnx"))
         tokenizer_json = OUTPUT_DIR / TOKENIZER_JSON_FILENAME
+        tokenizer_config = OUTPUT_DIR / TOKENIZER_CONFIG_FILENAME
         if tokenizer_json.exists():
             output_files.append(tokenizer_json)
+        if tokenizer_config.exists():
+            output_files.append(tokenizer_config)
         for f in sorted(output_files):
             s = f.stat().st_size / (1024*1024)
             print(f" - {f.name:<30} ({s:.1f} MB)")
