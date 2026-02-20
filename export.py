@@ -92,8 +92,10 @@ def export_tokenizer_json():
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     if not tokenizer_model_path.exists():
-        print(f"⚠️ {tokenizer_model_path} not found. Skipping tokenizer JSON export.")
-        return
+        raise FileNotFoundError(
+            f"Required tokenizer source file is missing: {tokenizer_model_path}. "
+            "Cannot regenerate canonical tokenizer artifacts."
+        )
 
     try:
         import sys
@@ -108,6 +110,18 @@ def export_tokenizer_json():
         tokenizer.normalizer = None
         tokenizer.save(str(tokenizer_json_path))
         print(f"✅ Exported tokenizer JSON: {tokenizer_json_path}")
+
+        from tokenizers import Tokenizer
+
+        hf_tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
+        sample_text = "Pocket TTS ONNX int64 tokenizer validation."
+        encoded = hf_tokenizer.encode(sample_text, add_special_tokens=False)
+        if not all(isinstance(token_id, int) for token_id in encoded.ids):
+            raise TypeError(
+                "Exported tokenizer produced non-integer token IDs. "
+                "This violates ONNX token_ids int64 compatibility."
+            )
+        print("✅ Tokenizer ID type validation passed (all integer IDs)")
 
         sp = spm.SentencePieceProcessor(model_file=str(tokenizer_model_path))
 
@@ -141,10 +155,10 @@ def export_tokenizer_json():
         )
         print(f"✅ Exported tokenizer config: {tokenizer_config_path}")
     except Exception as e:
-        print(
-            f"⚠️ Failed to export tokenizer artifacts ({TOKENIZER_JSON_FILENAME}, "
+        raise RuntimeError(
+            f"Failed to export tokenizer artifacts ({TOKENIZER_JSON_FILENAME}, "
             f"{TOKENIZER_CONFIG_FILENAME}): {e}"
-        )
+        ) from e
 
 
 def export_hf_readme(template_path: Path = HF_README_TEMPLATE):
@@ -224,6 +238,21 @@ def run_quantization():
     except subprocess.CalledProcessError:
         print("❌ Quantization Failed")
 
+
+def run_full_validation():
+    print("\n--- Running Full Contract Validation ---")
+    cmd = [
+        sys.executable,
+        "-m",
+        "scripts.validate_onnx_contracts",
+    ]
+    try:
+        subprocess.run(cmd, check=True)
+        print("✅ Full contract validation success")
+    except subprocess.CalledProcessError:
+        print("❌ Full contract validation failed")
+        sys.exit(1)
+
 def print_summary():
     print(f"\n✅ All Done! Artifacts are in: {OUTPUT_DIR.absolute()}")
     print("Files:")
@@ -246,6 +275,11 @@ import argparse
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified Export Script for PocketTTS")
     parser.add_argument("--quantize", action="store_true", help="Run INT8 quantization after export")
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Run full tokenizer/ONNX contract validation after export",
+    )
     args = parser.parse_args()
 
     install_check()
@@ -256,5 +290,8 @@ if __name__ == "__main__":
     
     if args.quantize:
         run_quantization()
+
+    if args.validate:
+        run_full_validation()
         
     print_summary()

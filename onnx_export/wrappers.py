@@ -193,5 +193,9 @@ class TextConditionerWrapper(nn.Module):
 
     def forward(self, token_ids):
         # token_ids: [B, T] -> embeddings: [B, T, D]
+        if token_ids.dtype != torch.int64:
+            raise TypeError(
+                f"token_ids must be torch.int64, got {token_ids.dtype}"
+            )
         from pocket_tts.conditioners.base import TokenizedText
         return self.conditioner(TokenizedText(token_ids))

@@ -29,6 +29,22 @@ ONNX export artifacts for Pocket TTS.
 - Exported from SentencePiece `tokenizer.model` using SentencePiece Unigram.
 - Special token behavior is explicit (no implicit BOS/EOS append).
 - Designed for parity with raw SentencePiece IDs for ONNX text conditioner input.
+- Runtime contract for `onnx/text_conditioner.onnx`:
+  - input name: `token_ids`
+  - input dtype: `tensor(int64)`
+  - input shape: `[1, seq_len]`
+  - tokenize with `add_special_tokens=false`, then cast/pack to int64 `[1, seq_len]`.
+
+Validation command:
+
+```bash
+uv run python scripts/validate_onnx_contracts.py
+```
+
+Validation outputs:
+
+- `onnx/validation_report.json`
+- `onnx/validation_report.txt`
 
 ## Attribution
 

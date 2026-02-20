@@ -187,7 +187,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
     text_conditioner_wrapper = TextConditionerWrapper(tts_model.flow_lm.conditioner)
     
     # Dummy tokens
-    dummy_tokens = torch.randint(0, 1000, (1, 20))
+    dummy_tokens = torch.randint(0, 1000, (1, 20), dtype=torch.int64)
     
     conditioner_onnx_path = os.path.join(output_dir, "text_conditioner.onnx")
     
@@ -294,8 +294,26 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
         print("Verifying Text Conditioner...")
         ort_conditioner = ort.InferenceSession(conditioner_path)
         
+        # Validate ONNX input signature
+        conditioner_inputs = ort_conditioner.get_inputs()
+        if len(conditioner_inputs) != 1:
+            raise RuntimeError(
+                f"Expected 1 input for text_conditioner.onnx, got {len(conditioner_inputs)}"
+            )
+
+        conditioner_input = conditioner_inputs[0]
+        if conditioner_input.name != "token_ids":
+            raise RuntimeError(
+                f"Expected input name 'token_ids', got '{conditioner_input.name}'"
+            )
+
+        if conditioner_input.type != "tensor(int64)":
+            raise RuntimeError(
+                f"Expected input dtype tensor(int64), got {conditioner_input.type}"
+            )
+
         # Test token input
-        test_tokens = torch.randint(0, 1000, (1, 20))
+        test_tokens = torch.randint(0, 1000, (1, 20), dtype=torch.int64)
         
         # PyTorch run
         conditioner_wrapper = TextConditionerWrapper(tts_model.flow_lm.conditioner)
@@ -303,7 +321,10 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
             pt_conditioner_out = conditioner_wrapper(test_tokens)
         
         # ONNX run
-        onnx_conditioner_out = ort_conditioner.run(None, {"token_ids": test_tokens.numpy()})[0]
+        onnx_conditioner_out = ort_conditioner.run(
+            None,
+            {"token_ids": test_tokens.numpy().astype(np.int64)},
+        )[0]
         
         np.testing.assert_allclose(
             pt_conditioner_out.numpy(), onnx_conditioner_out, 

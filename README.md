@@ -17,6 +17,12 @@ This package provides a robust pipeline to export **PocketTTS** models to ONNX (
 
     # Exports FP32 AND INT8 models (recommended)
     uv run python export.py --quantize
+
+    # Exports, quantizes, and runs full contract validation
+    uv run python export.py --quantize --validate
+
+    # Validates tokenizer/ONNX dtype + signatures + sample chain inference
+    uv run python scripts/validate_onnx_contracts.py
     ```
 
 ## Output Artifacts
@@ -36,6 +42,18 @@ The pipeline generates **5 ONNX models + 2 tokenizer artifacts** under `hf/`:
 All ONNX models are written to `hf/onnx/`.
 
 ## Technical Implementation
+
+## Runtime Contract (Electron/ONNX)
+
+- Canonical tokenizer files: `hf/tokenizer.json` and `hf/tokenizer_config.json`.
+- `text_conditioner.onnx` input contract:
+    - name: `token_ids`
+    - dtype: `tensor(int64)`
+    - shape: `[1, seq_len]` (dynamic sequence length)
+- Runtime tokenization should use `add_special_tokens=False` and pass IDs as int64.
+- If `weights/tokenizer.model` is missing, export fails to prevent stale tokenizer artifacts.
+
+See `MIGRATION_NOTE.md` for runtime formatting guidance and contract changes.
 
 ### 1. Split-Architecture for FlowLM
 Unlike the unified PyTorch model, we split the **Flow Transformer** into two parts (`main` and `flow`):
