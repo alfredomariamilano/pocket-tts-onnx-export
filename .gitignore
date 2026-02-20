@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 
+hf
 .env
 .agents
 # Large Weights (Download them via export.py)

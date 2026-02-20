@@ -4,11 +4,14 @@ import sys
 from pathlib import Path
 
 # Constants
-OUTPUT_DIR = Path("onnx")
+OUTPUT_DIR = Path("hf")
+ONNX_DIR = OUTPUT_DIR / "onnx"
 WEIGHTS_DIR = Path("weights")
 SCRIPTS_DIR = Path("scripts")
 REPO_ID = "kyutai/pocket-tts"
 WEIGHTS_FILENAME = "tts_b6369a24.safetensors"
+TOKENIZER_MODEL_FILENAME = "tokenizer.model"
+TOKENIZER_JSON_FILENAME = "tokenizer.json"
 
 
 def _load_hf_token() -> str | None:
@@ -69,23 +72,42 @@ def download_weights():
     try:
         hf_hub_download(
             repo_id=REPO_ID,
-            filename="tokenizer.model",
+            filename=TOKENIZER_MODEL_FILENAME,
             local_dir=WEIGHTS_DIR,
             token=token,
         )
-        print("✅ Downloaded: tokenizer.model")
+        print(f"✅ Downloaded: {TOKENIZER_MODEL_FILENAME}")
     except Exception:
-        print("⚠️ tokenizer.model download failed (may be optional).")
+        print(f"⚠️ {TOKENIZER_MODEL_FILENAME} download failed (may be optional).")
+
+
+def export_tokenizer_json():
+    tokenizer_model_path = WEIGHTS_DIR / TOKENIZER_MODEL_FILENAME
+    tokenizer_json_path = OUTPUT_DIR / TOKENIZER_JSON_FILENAME
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    if not tokenizer_model_path.exists():
+        print(f"⚠️ {tokenizer_model_path} not found. Skipping tokenizer JSON export.")
+        return
+
+    try:
+        from transformers import T5TokenizerFast
+
+        tokenizer = T5TokenizerFast(vocab_file=str(tokenizer_model_path))
+        tokenizer.backend_tokenizer.save(str(tokenizer_json_path))
+        print(f"✅ Exported tokenizer JSON: {tokenizer_json_path}")
+    except Exception as e:
+        print(f"⚠️ Failed to export {TOKENIZER_JSON_FILENAME}: {e}")
 
 def run_export_scripts():
     print(f"\n--- Running Export Scripts ---")
     
     # Ensure output directory exists
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    ONNX_DIR.mkdir(parents=True, exist_ok=True)
     
     # Common arguments
     weights_path = str(WEIGHTS_DIR / WEIGHTS_FILENAME)
-    output_dir_str = str(OUTPUT_DIR)
+    output_dir_str = str(ONNX_DIR)
     
     # 1. Export Mimi & Conditioner
     print("\n[1/2] Exporting Mimi & Text Conditioner...")
@@ -123,18 +145,18 @@ def run_quantization():
     print(f"\n--- [Optional] Running Quantization ---")
     
     # Check if input directory has models
-    if not any(OUTPUT_DIR.glob("*.onnx")):
+    if not any(ONNX_DIR.glob("*.onnx")):
         print("⚠️ No models found in output directory to quantize.")
         return
 
     # Quantization Output Directory (Same as input for PocketTTS compatibility)
-    QUANT_DIR = OUTPUT_DIR
+    QUANT_DIR = ONNX_DIR
     
     cmd = [
         sys.executable,
         "-m",
         "scripts.quantize",
-        "--input_dir", str(OUTPUT_DIR),
+        "--input_dir", str(ONNX_DIR),
         "--output_dir", str(QUANT_DIR)
     ]
     
@@ -145,10 +167,14 @@ def run_quantization():
         print("❌ Quantization Failed")
 
 def print_summary():
-    print(f"\n✅ All Done! Models are in: {OUTPUT_DIR.absolute()}")
+    print(f"\n✅ All Done! Artifacts are in: {OUTPUT_DIR.absolute()}")
     print("Files:")
     if OUTPUT_DIR.exists():
-        for f in sorted(OUTPUT_DIR.glob("*.onnx")):
+        output_files = list(ONNX_DIR.glob("*.onnx"))
+        tokenizer_json = OUTPUT_DIR / TOKENIZER_JSON_FILENAME
+        if tokenizer_json.exists():
+            output_files.append(tokenizer_json)
+        for f in sorted(output_files):
             s = f.stat().st_size / (1024*1024)
             print(f" - {f.name:<30} ({s:.1f} MB)")
     else:
@@ -163,6 +189,7 @@ if __name__ == "__main__":
 
     install_check()
     download_weights()
+    export_tokenizer_json()
     run_export_scripts()
     
     if args.quantize:

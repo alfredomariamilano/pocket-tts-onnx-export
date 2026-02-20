@@ -21,7 +21,7 @@ This package provides a robust pipeline to export **PocketTTS** models to ONNX (
 
 ## Output Artifacts
 
-The pipeline generates **5 distinct ONNX models** in the `onnx/` directory:
+The pipeline generates **5 ONNX models + 1 tokenizer artifact** under `hf/`:
 
 | Model | Description | Reasoning |
 | :--- | :--- | :--- |
@@ -30,6 +30,9 @@ The pipeline generates **5 distinct ONNX models** in the `onnx/` directory:
 | **`flow_lm_main.onnx`** | Transformer Backbone | **Stateful AR**. Updates KV-cache and steps. Returns conditioning vector. |
 | **`flow_lm_flow.onnx`** | Flow Matching Net | **Stateless**. Solves the ODE step ($v = f(x, t, c)$). |
 | **`mimi_decoder.onnx`** | Latents → Audio | Streaming neural codec decoder. |
+| **`tokenizer.json`** | SentencePiece tokenizer (HF JSON) | Written to `hf/tokenizer.json`, compatible with `@huggingface/tokenizers` in JS runtimes. |
+
+All ONNX models are written to `hf/onnx/`.
 
 ## Technical Implementation
 
