@@ -1,0 +1,34 @@
+[project]
+name = "pocket-tts-onnx-export"
+version = "0.1.0"
+description = "ONNX export pipeline for PocketTTS"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+    "beartype",
+    "einops",
+    "huggingface_hub",
+    "onnx",
+    "onnxruntime",
+    "onnxscript",
+    "pocket-tts[audio]",
+    "pydantic",
+    "safetensors",
+    "scipy",
+    "sentencepiece",
+    "soundfile",
+    "torch",
+    "transformers",
+]
+
+[tool.uv.sources]
+pocket-tts = { path = "third_party/pocket-tts" }
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv]
+python-preference = "only-managed"

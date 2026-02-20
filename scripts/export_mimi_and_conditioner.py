@@ -4,6 +4,9 @@ import argparse
 
 # Monkeypatch beartype to avoid errors during tracing where Tensors are passed as ints
 import beartype
+import beartype.claw
+
+beartype.claw.beartype_this_package = lambda *args, **kwargs: None
 beartype.beartype = lambda *args, **kwargs: (lambda func: func) if not args else args[0]
 
 import torch
@@ -36,182 +39,21 @@ def patched_stateful_increment_step(self, state: dict, increment = 1):
     pass
 StatefulModule.increment_step = patched_stateful_increment_step
 
-# Monkeypatch StreamingMultiheadAttention to use scalar 'step'
-from pocket_tts.modules.transformer import StreamingMultiheadAttention, complete_kv
+import pocket_tts.modules.transformer as transformer_module
 
-def patched_init_state(self, batch_size: int, sequence_length: int) -> dict[str, torch.Tensor]:
-    dim_per_head = self.embed_dim // self.num_heads
-    # Use a scalar tensor 'step' for position tracking
-    initial_step = torch.tensor([0], dtype=torch.long, device=self.in_proj.weight.device)
-    # current_end is kept static (size 0) or dummy, we won't use it for length info
-    initial_current_end = torch.zeros((0,)).to(self.in_proj.weight.device)
-    
-    return dict(
-        step=initial_step,
-        current_end=initial_current_end, # Kept for compatibility if accessed elsewhere
-        cache=torch.full(
-            (2, batch_size, sequence_length, self.num_heads, dim_per_head),
-            float("NaN"),
-            device=self.in_proj.weight.device,
-            dtype=self.in_proj.weight.dtype,
-        ),
-    )
 
-def patched_increment_step(self, state: dict, increment: int = 1):
-    # Update scalar step
-    state["step"] = state["step"] + increment
+def patched_complete_kv(cache: torch.Tensor, offset: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+    if offset.numel() > 1 and not torch.all(offset == offset.view(-1)[0]):
+        raise ValueError("Linear cache offset must be identical across batch.")
+    offset_value = offset.view(-1)[0]
 
-def patched_streaming_offset(self, state: dict | None) -> torch.Tensor:
-    # Read position from scalar step as TENSOR
-    return state["step"]
-
-def patched_sma_complete_kv(self, k, v, state: dict | None):
-    # current_step IS TENSOR
-    current_step = state["step"]
-    
-    # Clone cache for out-of-place update (ONNX requirement)
-    cache = state["cache"]
-    new_cache = cache.clone()
-    
-    # Slice assignment with tensors should work in modern Torch -> DynamicSlice in ONNX
-    new_cache[0, :, current_step : current_step + k.shape[1]] = k
-    new_cache[1, :, current_step : current_step + v.shape[1]] = v
-    
-    # Update state dict
-    state["cache"] = new_cache
-    
-    # Slicing logic from original: valid = cache[:, :, : current_end + k.shape[1]]
-    valid = new_cache[:, :, : current_step + k.shape[1]]
+    cache[0, :, offset_value : offset_value + k.shape[1]] = k
+    cache[1, :, offset_value : offset_value + v.shape[1]] = v
+    valid = cache[:, :, : offset_value + k.shape[1]]
     return valid[0], valid[1]
 
-StreamingMultiheadAttention.init_state = patched_init_state
-StreamingMultiheadAttention.increment_step = patched_increment_step
-StreamingMultiheadAttention._streaming_offset = patched_streaming_offset
-StreamingMultiheadAttention._complete_kv = patched_sma_complete_kv
 
-# Monkeypatch _get_mask to use arithmetic implementation (avoids torch.tril specialization)
-def patched_get_mask(self, shape: tuple[int, torch.Tensor], shift: torch.Tensor, device: torch.device):
-    rows, cols_tensor = shape
-    # rows is int (static/symbolic from query), cols_tensor is Tensor (t + step)
-    
-    # Create row indices [rows, 1]
-    row_idx = torch.arange(rows, device=device).unsqueeze(1) 
-    
-    # Create col indices [1, cols] dynamic size
-    # torch.arange(tensor) fails in legacy export.
-    # Workaround: Arange larger constant, then slice.
-    MAX_COLS = 4096 # Sufficiently large buffer
-    
-    # We must slice using the tensor.
-    # torch.arange(MAX_COLS)[:cols_tensor]
-    # Check if cols_tensor is within bounds? If not, we have bigger problems.
-    
-    full_col_idx = torch.arange(MAX_COLS, device=device).unsqueeze(0)
-    col_idx = full_col_idx[:, :cols_tensor]
-    
-    # Mask condition
-    mask_bool = (col_idx <= row_idx + shift)
-    
-    # Create mask via broadcasting logic
-    mask = torch.full(mask_bool.shape, float("-inf"), device=device)
-    mask.masked_fill_(mask_bool, 0.0)
-    
-    return mask
-
-StreamingMultiheadAttention._get_mask = patched_get_mask
-
-# Monkeypatch Forward to use step for mask
-import torch.nn.functional as F
-def patched_sma_forward(self, query: torch.Tensor, model_state: dict | None):
-    # Standard forward logic but using 'step' for shift
-    state = self.check_model_state(model_state)
-
-    projected = self.in_proj(query)
-    # Reshape from (b, t, p*h*d) to (b, t, p, h, d) where p=3, h=num_heads
-    b, t, _ = projected.shape
-    # torch._check(t > 0) removed for legacy export compatibility
-    
-    d = self.embed_dim // self.num_heads
-    packed = projected.view(b, t, 3, self.num_heads, d)
-    q, k, v = torch.unbind(packed, dim=2)
-    q, k = self._apply_rope(q, k, state)
-    k, v = self._complete_kv(k, v, state)
-
-    # PATCHED: Use step from state as TENSOR (do not use .item())
-    current_step = state["step"]
-    
-    # Mask shape: (T, current_step + T)
-    # Pass as mixed tuple, handler will unpack
-    mask_shape = (t, t + current_step)
-    shift = current_step
-
-    attn_mask = self._get_mask(mask_shape, shift=shift, device=q.device)
-
-    q, k, v = [x.transpose(1, 2) for x in (q, k, v)]
-    x = F.scaled_dot_product_attention(q, k, v, attn_mask)
-    x = x.transpose(1, 2)
-    x = x.reshape(b, t, self.num_heads * d)
-    x = self.out_proj(x)
-
-    return x
-
-StreamingMultiheadAttention.forward = patched_sma_forward
-
-# Monkeypatch MimiStreamingMultiheadAttention logic (mostly same)
-from pocket_tts.modules.mimi_transformer import MimiStreamingMultiheadAttention, KVCacheResult
-
-def patched_mimi_increment_step(self, state: dict, increment: int = 1):
-    # Corrected: Update "offset" (RoPE pos) not "end_offset" (buffer pos)
-    state["offset"] = state["offset"] + increment
-
-MimiStreamingMultiheadAttention.increment_step = patched_mimi_increment_step
-
-# Restore existing Mimi complete_kv patch
-def patched_mimi_complete_kv(self, k, v, model_state: dict | None):
-    if model_state is None:
-        return KVCacheResult.from_kv(k, v)
-        
-    layer_state = self.get_state(model_state)
-    cache = layer_state["cache"]
-    end_offset = layer_state["end_offset"]
-    
-    capacity = cache.shape[3]
-    B, H, T, D = k.shape
-    
-    new_cache = cache.clone()
-    new_end_offset = end_offset.clone()
-    
-    # Original logic adapted...
-    indexes = torch.arange(T, device=end_offset.device, dtype=end_offset.dtype)
-    indexes = indexes + end_offset.view(-1, 1)
-    indexes = indexes % capacity
-    
-    this_indexes = indexes.view(B, 1, T, 1)
-    this_indexes = this_indexes.expand(-1, H, T, D)
-    
-    new_cache[0].scatter_(2, this_indexes, k)
-    new_cache[1].scatter_(2, this_indexes, v)
-    
-    keys = new_cache[0]
-    values = new_cache[1]
-    
-    indexes_r = torch.arange(capacity, device=end_offset.device, dtype=torch.long)
-    last_offset = end_offset.view(-1, 1) + T - 1
-    end_index = last_offset % capacity
-    delta = indexes_r - end_index
-    
-    positions = torch.where(delta <= 0, last_offset + delta, last_offset + delta - capacity)
-    new_end_offset[:] = end_offset + T
-    
-    invalid = indexes_r >= new_end_offset.view(-1, 1)
-    positions = torch.where(invalid, torch.full_like(positions, -1), positions)
-    
-    layer_state["cache"] = new_cache
-    layer_state["end_offset"] = new_end_offset
-    
-    return KVCacheResult(keys, values, positions)
-
-MimiStreamingMultiheadAttention._complete_kv = patched_mimi_complete_kv
+transformer_module.complete_kv = patched_complete_kv
 
 import os
 import onnxruntime as ort
@@ -331,7 +173,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         input_names=["audio"],
         output_names=["latents"],
         dynamic_shapes={"audio": {2: "audio_len"}},
-        opset_version=17,
+        opset_version=18,
         dynamo=True,
         external_data=False
     )
@@ -356,7 +198,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         input_names=["token_ids"],
         output_names=["embeddings"],
         dynamic_shapes={"token_ids": {1: "seq_len"}},
-        opset_version=17,
+        opset_version=18,
         dynamo=True,
         external_data=False
     )
@@ -405,7 +247,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         input_names=mimi_input_names,
         output_names=mimi_output_names,
         dynamic_axes=mimi_dynamic_axes,
-        opset_version=17,
+        opset_version=18,
         dynamo=False
     )
     print(f"Mimi exported to {mimi_onnx_path}")

@@ -149,8 +149,9 @@ class MimiWrapper(nn.Module):
             else:
                 seq_len = latent.shape[1]
             
-            # Increment by the hop factor (200Hz transformer / 12.5Hz latent = 16)
-            increment = seq_len * 16
+            # Increment by the hop factor between encoder and latent frame rates.
+            increment_ratio = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+            increment = seq_len * increment_ratio
             increment_steps(self.mimi, model_state, increment=increment)
             
             new_flat_state = flatten_state(model_state)

@@ -6,16 +6,17 @@ This package provides a robust pipeline to export **PocketTTS** models to ONNX (
 
 1.  **Install Dependencies**:
     ```bash
-    pip install -r requirements.txt
+    git submodule update --init --recursive
+    uv sync
     ```
 
 2.  **Run Export**:
     ```bash
     # Exports FP32 models to ./onnx
-    python export.py
+    uv run python export.py
 
     # Exports FP32 AND INT8 models (recommended)
-    python export.py --quantize
+    uv run python export.py --quantize
     ```
 
 ## Output Artifacts
@@ -52,7 +53,7 @@ We use **Dynamic Quantization** targeting `MatMul` (Matrix Multiplication) opera
 This project includes code from **[PocketTTS](https://github.com/kyutai-labs/pocket-tts)** by **Kyutai Labs**.
 
 *   **Original Code License**: MIT
-*   **Modifications**: This exporter package modifies the original source to support ONNX tracing (via monkeypatching and wrappers) and splits the architecture for improved runtime control.
+*   **Modifications**: This exporter package applies ONNX export wrappers/patches around upstream PocketTTS and splits the architecture for improved runtime control.
 
-Code from the `pocket_tts` module is redistributed here under the terms of the MIT License.
+Upstream PocketTTS is included as a pinned git submodule under `third_party/pocket-tts`.
 

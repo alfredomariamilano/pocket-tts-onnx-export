@@ -10,17 +10,45 @@ SCRIPTS_DIR = Path("scripts")
 REPO_ID = "kyutai/pocket-tts"
 WEIGHTS_FILENAME = "tts_b6369a24.safetensors"
 
+
+def _load_hf_token() -> str | None:
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        return token.strip().strip('"').strip("'")
+
+    env_path = Path(".env")
+    if not env_path.exists():
+        return None
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() != "HF_TOKEN":
+            continue
+        cleaned = value.strip().strip('"').strip("'")
+        if cleaned:
+            os.environ["HF_TOKEN"] = cleaned
+            return cleaned
+    return None
+
 def install_check():
     try:
         import huggingface_hub
         print("✅ huggingface_hub is installed.")
     except ImportError:
-        print("❌ huggingface_hub is missing. Please run: pip install -r requirements.txt")
+        print("❌ huggingface_hub is missing. Please run: uv sync")
         sys.exit(1)
 
 def download_weights():
     print(f"\n--- Downloading Weights from {REPO_ID} ---")
     WEIGHTS_DIR.mkdir(exist_ok=True)
+    token = _load_hf_token()
+    if token:
+        print("✅ Using HF_TOKEN from environment/.env")
+    else:
+        print("⚠️ HF_TOKEN not found; gated repo downloads may fail.")
     
     from huggingface_hub import hf_hub_download
     
@@ -29,7 +57,7 @@ def download_weights():
             repo_id=REPO_ID,
             filename=WEIGHTS_FILENAME,
             local_dir=WEIGHTS_DIR,
-            local_dir_use_symlinks=False
+            token=token,
         )
         print(f"✅ Downloaded: {local_path}")
     except Exception as e:
@@ -43,7 +71,7 @@ def download_weights():
             repo_id=REPO_ID,
             filename="tokenizer.model",
             local_dir=WEIGHTS_DIR,
-            local_dir_use_symlinks=False
+            token=token,
         )
         print("✅ Downloaded: tokenizer.model")
     except Exception:
@@ -55,11 +83,6 @@ def run_export_scripts():
     # Ensure output directory exists
     OUTPUT_DIR.mkdir(exist_ok=True)
     
-    # Setup environment for subprocesses
-    # Add current directory to PYTHONPATH so scripts can import 'pocket_tts' package
-    env = os.environ.copy()
-    env["PYTHONPATH"] = "." + os.pathsep + env.get("PYTHONPATH", "")
-    
     # Common arguments
     weights_path = str(WEIGHTS_DIR / WEIGHTS_FILENAME)
     output_dir_str = str(OUTPUT_DIR)
@@ -67,13 +90,14 @@ def run_export_scripts():
     # 1. Export Mimi & Conditioner
     print("\n[1/2] Exporting Mimi & Text Conditioner...")
     cmd1 = [
-        sys.executable, 
-        str(SCRIPTS_DIR / "export_mimi_and_conditioner.py"),
+        sys.executable,
+        "-m",
+        "scripts.export_mimi_and_conditioner",
         "--output_dir", output_dir_str,
         "--weights_path", weights_path
     ]
     try:
-        subprocess.run(cmd1, check=True, env=env)
+        subprocess.run(cmd1, check=True)
         print("✅ Mimi/Conditioner Export Success")
     except subprocess.CalledProcessError:
         print("❌ Mimi/Conditioner Export Failed")
@@ -82,13 +106,14 @@ def run_export_scripts():
     # 2. Export FlowLM
     print("\n[2/2] Exporting FlowLM (Split Models)...")
     cmd2 = [
-        sys.executable, 
-        str(SCRIPTS_DIR / "export_flow_lm.py"),
+        sys.executable,
+        "-m",
+        "scripts.export_flow_lm",
         "--output_dir", output_dir_str,
         "--weights_path", weights_path
     ]
     try:
-        subprocess.run(cmd2, check=True, env=env)
+        subprocess.run(cmd2, check=True)
         print("✅ FlowLM Export Success")
     except subprocess.CalledProcessError:
         print("❌ FlowLM Export Failed")
@@ -105,19 +130,16 @@ def run_quantization():
     # Quantization Output Directory (Same as input for PocketTTS compatibility)
     QUANT_DIR = OUTPUT_DIR
     
-    # Setup environment
-    env = os.environ.copy()
-    env["PYTHONPATH"] = "." + os.pathsep + env.get("PYTHONPATH", "")
-    
     cmd = [
         sys.executable,
-        str(SCRIPTS_DIR / "quantize.py"),
+        "-m",
+        "scripts.quantize",
         "--input_dir", str(OUTPUT_DIR),
         "--output_dir", str(QUANT_DIR)
     ]
     
     try:
-        subprocess.run(cmd, check=True, env=env)
+        subprocess.run(cmd, check=True)
         print(f"✅ Quantization Success! INT8 models in: {QUANT_DIR.absolute()}")
     except subprocess.CalledProcessError:
         print("❌ Quantization Failed")

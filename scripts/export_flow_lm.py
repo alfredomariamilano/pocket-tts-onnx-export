@@ -1,100 +1,35 @@
 import argparse
 import sys
+import beartype.claw
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import os
 import onnx
+
+beartype.claw.beartype_this_package = lambda *args, **kwargs: None
+
 from pocket_tts.models.tts_model import TTSModel
 from pocket_tts.default_parameters import DEFAULT_VARIANT
-from pocket_tts.modules.stateful_module import init_states, StatefulModule
-from pocket_tts.modules.transformer import StreamingMultiheadAttention
-from pocket_tts.modules.mimi_transformer import MimiStreamingMultiheadAttention, KVCacheResult
+from pocket_tts.modules.stateful_module import init_states
+import pocket_tts.modules.transformer as transformer_module
 from onnx_export.export_utils import get_state_structure, flatten_state
 
 # ==============================================================================
 # 1. MONKEYPATCHES
 # ==============================================================================
 
-def patched_init_state(self, batch_size: int, sequence_length: int) -> dict[str, torch.Tensor]:
-    dim_per_head = self.embed_dim // self.num_heads
-    initial_step = torch.tensor([0], dtype=torch.long, device=self.in_proj.weight.device)
-    initial_current_end = torch.zeros((0,)).to(self.in_proj.weight.device)
-    return dict(
-        step=initial_step,
-        current_end=initial_current_end,
-        cache=torch.full(
-            (2, batch_size, sequence_length, self.num_heads, dim_per_head),
-            float("NaN"),
-            device=self.in_proj.weight.device,
-            dtype=self.in_proj.weight.dtype,
-        ),
-    )
+def patched_complete_kv(cache: torch.Tensor, offset: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+    if offset.numel() > 1 and not torch.all(offset == offset.view(-1)[0]):
+        raise ValueError("Linear cache offset must be identical across batch.")
+    offset_value = offset.view(-1)[0]
 
-def patched_increment_step(self, state: dict, increment: int = 1):
-    state["step"] = state["step"] + increment
-
-def patched_streaming_offset(self, state: dict | None) -> torch.Tensor:
-    return state["step"]
-
-def patched_sma_complete_kv(self, k, v, state: dict | None):
-    current_step = state["step"]
-    cache = state["cache"]
-    new_cache = cache.clone()
-    new_cache[0, :, current_step : current_step + k.shape[1]] = k
-    new_cache[1, :, current_step : current_step + v.shape[1]] = v
-    state["cache"] = new_cache
-    valid = new_cache[:, :, : current_step + k.shape[1]]
+    cache[0, :, offset_value : offset_value + k.shape[1]] = k
+    cache[1, :, offset_value : offset_value + v.shape[1]] = v
+    valid = cache[:, :, : offset_value + k.shape[1]]
     return valid[0], valid[1]
 
-def patched_get_mask(self, shape: tuple[int, torch.Tensor], shift: torch.Tensor, device: torch.device):
-    rows, cols_tensor = shape
-    row_idx = torch.arange(rows, device=device).unsqueeze(1) 
-    MAX_COLS = 4096 
-    full_col_idx = torch.arange(MAX_COLS, device=device).unsqueeze(0)
-    col_idx = full_col_idx[:, :cols_tensor]
-    mask_bool = (col_idx <= row_idx + shift)
-    mask = torch.full(mask_bool.shape, float("-inf"), device=device)
-    mask.masked_fill_(mask_bool, 0.0)
-    return mask
 
-def patched_sma_forward(self, query: torch.Tensor, model_state: dict | None):
-    state = self.check_model_state(model_state)
-    projected = self.in_proj(query)
-    b, t, _ = projected.shape
-    d = self.embed_dim // self.num_heads
-    packed = projected.view(b, t, 3, self.num_heads, d)
-    q, k, v = torch.unbind(packed, dim=2)
-    q, k = self._apply_rope(q, k, state)
-    k, v = self._complete_kv(k, v, state)
-
-    current_step = state["step"]
-    mask_shape = (t, t + current_step)
-    shift = current_step
-    attn_mask = self._get_mask(mask_shape, shift=shift, device=q.device)
-
-    q, k, v = [x.transpose(1, 2) for x in (q, k, v)]
-    x = F.scaled_dot_product_attention(q, k, v, attn_mask)
-    x = x.transpose(1, 2)
-    x = x.reshape(b, t, self.num_heads * d)
-    x = self.out_proj(x)
-    return x
-
-StreamingMultiheadAttention.init_state = patched_init_state
-StreamingMultiheadAttention.increment_step = patched_increment_step
-StreamingMultiheadAttention._streaming_offset = patched_streaming_offset
-StreamingMultiheadAttention._complete_kv = patched_sma_complete_kv
-StreamingMultiheadAttention._get_mask = patched_get_mask
-StreamingMultiheadAttention.forward = patched_sma_forward
-
-def patched_mimi_increment_step(self, state: dict, increment: int = 1):
-    state["offset"] = state["offset"] + increment
-
-MimiStreamingMultiheadAttention.increment_step = patched_mimi_increment_step
-
-def patched_stateful_increment_step(self, state: dict, increment = 1):
-    return state
-StatefulModule.increment_step = patched_stateful_increment_step
+transformer_module.complete_kv = patched_complete_kv
 
 # ==============================================================================
 # 2. WRAPPERS
