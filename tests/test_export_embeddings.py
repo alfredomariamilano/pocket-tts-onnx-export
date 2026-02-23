@@ -122,7 +122,7 @@ def test_download_hf_file_permission(tmp_path, capsys, monkeypatch):
 
 
 def test_convert_safetensor_missing_key(tmp_path, capsys):
-    # create a safetensors file that lacks the expected 'audio_prompt' key
+    # create a safetensors file that matches neither supported schema
     import numpy as np, safetensors.numpy
 
     arr = np.zeros((1, 3, EMBEDDING_DIM), dtype=np.float32)
@@ -134,7 +134,7 @@ def test_convert_safetensor_missing_key(tmp_path, capsys):
     assert result is False
 
     out = capsys.readouterr().out
-    assert "missing 'audio_prompt' tensor" in out
+    assert "did not match supported schemas" in out
 
     # no artefacts should have been created
     assert not path.with_suffix('.bin').exists()
@@ -142,7 +142,7 @@ def test_convert_safetensor_missing_key(tmp_path, capsys):
 
 
 def test_download_voice_embeddings_summary(tmp_path, monkeypatch, capsys):
-    # simulate two safetensors, one good one bad
+    # simulate two safetensors, one good one unsupported
     repo_id = "kyutai/pocket-tts"
     fake_files = ["embeddings/foo.safetensors", "embeddings/bar.safetensors"]
     monkeypatch.setattr(huggingface_hub, "HfApi", lambda token=None: DummyApi(fake_files))
@@ -157,7 +157,7 @@ def test_download_voice_embeddings_summary(tmp_path, monkeypatch, capsys):
             arr = np.zeros((1, 2, EMBEDDING_DIM), dtype=np.float32)
             safetensors.numpy.save_file({"audio_prompt": arr}, str(cache_path))
         else:
-            # missing key
+            # unsupported schema (neither v1 nor v2)
             import numpy as np, safetensors.numpy
             arr = np.zeros((1, 2, EMBEDDING_DIM), dtype=np.float32)
             safetensors.numpy.save_file({"oops": arr}, str(cache_path))
@@ -169,7 +169,79 @@ def test_download_voice_embeddings_summary(tmp_path, monkeypatch, capsys):
     exporter.download_voice_embeddings(repo_id, out_dir, token=None)
     output = capsys.readouterr().out
     assert "Converted foo.safetensors" in output
-    assert "lacked an audio_prompt" in output and "bar.safetensors" in output
+    assert "did not match supported schemas" in output and "bar.safetensors" in output
+
+
+def test_convert_safetensor_v2_model_state(tmp_path):
+    import numpy as np, safetensors.numpy
+
+    path = tmp_path / "voice_v2.safetensors"
+    # Deliberately unsorted keys; converter should produce deterministic state_ order.
+    safetensors.numpy.save_file(
+        {
+            "flow_lm/z_cache": np.zeros((1, 4), dtype=np.float32),
+            "flow_lm/a_steps": np.array([7], dtype=np.int64),
+            "decoder/enabled": np.array([True], dtype=np.bool_),
+        },
+        str(path),
+    )
+
+    ok = exporter._convert_safetensor_to_raw(path)
+    assert ok is True
+
+    bin_path = path.with_suffix(".bin")
+    meta_path = path.with_suffix(".json")
+    assert bin_path.exists()
+    assert meta_path.exists()
+
+    meta = json.loads(meta_path.read_text())
+    assert meta["format"] == "pocket_tts_flow_state_v2"
+    assert meta["tensor_count"] == 3
+    assert len(meta["tensors"]) == 3
+
+    tensor_names = [entry["name"] for entry in meta["tensors"]]
+    assert tensor_names == ["state_0", "state_1", "state_2"]
+
+    source_keys = [entry["source_key"] for entry in meta["tensors"]]
+    # sorted by module, then tensor key
+    assert source_keys == [
+        "decoder/enabled",
+        "flow_lm/a_steps",
+        "flow_lm/z_cache",
+    ]
+
+    dtypes = [entry["dtype"] for entry in meta["tensors"]]
+    assert dtypes == ["bool", "int64", "float32"]
+
+    total = 0
+    for entry in meta["tensors"]:
+        assert entry["offset"] == total
+        total += entry["nbytes"]
+    assert meta["total_bytes"] == total
+    assert bin_path.stat().st_size == total
+
+
+def test_convert_safetensor_v2_current_end_to_int64_scalar(tmp_path):
+    import numpy as np, safetensors.numpy
+
+    path = tmp_path / "voice_current_end.safetensors"
+    safetensors.numpy.save_file(
+        {
+            "transformer.layers.0.self_attn/cache": np.zeros((2, 1, 10, 16, 64), dtype=np.float32),
+            "transformer.layers.0.self_attn/current_end": np.zeros((10,), dtype=np.float32),
+        },
+        str(path),
+    )
+
+    ok = exporter._convert_safetensor_to_raw(path)
+    assert ok is True
+
+    meta = json.loads(path.with_suffix(".json").read_text())
+    entries = {entry["source_key"]: entry for entry in meta["tensors"]}
+    current_end = entries["transformer.layers.0.self_attn/current_end"]
+
+    assert current_end["dtype"] == "int64"
+    assert current_end["shape"] == [1]
 
 
 def test_run_export_scripts_skip(tmp_path, capsys, monkeypatch):

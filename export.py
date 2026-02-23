@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # Constants
@@ -16,6 +17,16 @@ TOKENIZER_MODEL_FILENAME = "tokenizer.model"
 TOKENIZER_JSON_FILENAME = "tokenizer.json"
 TOKENIZER_CONFIG_FILENAME = "tokenizer_config.json"
 HF_README_TEMPLATE = Path("HF_README.md")
+
+
+@dataclass(frozen=True)
+class _StateTensorEntry:
+    source_key: str
+    name: str
+    dtype: str
+    shape: list[int]
+    offset: int
+    nbytes: int
 
 
 def _load_hf_token() -> str | None:
@@ -97,36 +108,152 @@ def download_weights():
 
 
 def _convert_safetensor_to_raw(src_path: Path) -> bool:
-    """Convert a `.safetensors` file containing an ``audio_prompt`` tensor
-    into a raw float32 binary blob and accompanying metadata.
+    """Convert a voice safetensors file into runtime-friendly raw payloads.
 
-    Returns ``True`` if the conversion succeeded, ``False`` if the file lacked
-    the expected key or if an error occurred.  The caller may use the return
-    value to accumulate a warning summary instead of printing repeated lines.
+    Supported schemas:
+    - v1: single ``audio_prompt`` tensor -> ``.bin`` + ``{"shape", "dtype"}``
+    - v2: flattened model-state tensors (``module/key`` names) -> ``.bin`` +
+      manifest with deterministic ``state_{i}`` entries for ONNX state seeding.
     """
     try:
-        # delay heavy imports until needed
         import numpy as np
-        import safetensors.torch
+        import safetensors.numpy
 
-        data = safetensors.torch.load_file(str(src_path))
+        def _dtype_to_contract(dtype: np.dtype) -> str | None:
+            if dtype == np.dtype("float32"):
+                return "float32"
+            if dtype == np.dtype("int64"):
+                return "int64"
+            if dtype == np.dtype("bool"):
+                return "bool"
+            return None
+
+        def _to_nested_state(tensors: dict[str, np.ndarray]) -> dict[str, dict[str, np.ndarray]]:
+            nested: dict[str, dict[str, np.ndarray]] = {}
+            for key, value in tensors.items():
+                if "/" not in key:
+                    continue
+                module_name, tensor_name = key.split("/", 1)
+                nested.setdefault(module_name, {})[tensor_name] = value
+            return nested
+
+        def _flatten_nested_state(
+            nested: dict[str, dict[str, np.ndarray]],
+        ) -> list[tuple[str, np.ndarray]]:
+            flattened: list[tuple[str, np.ndarray]] = []
+            for module_name in sorted(nested.keys()):
+                module_state = nested[module_name]
+                for tensor_name in sorted(module_state.keys()):
+                    flattened.append((f"{module_name}/{tensor_name}", module_state[tensor_name]))
+            return flattened
+
+        data = safetensors.numpy.load_file(str(src_path))
+        raw_path = src_path.with_suffix(".bin")
+        meta_path = src_path.with_suffix(".json")
+
+        # v1: single embedding tensor.
         tensor = data.get("audio_prompt")
-        if tensor is None:
-            print(f"⚠️ {src_path.name} missing 'audio_prompt' tensor, skipping conversion")
+        if tensor is not None:
+            arr = np.array(tensor, copy=False).astype("float32", copy=False)
+            arr.tofile(str(raw_path))
+
+            meta = {"shape": list(arr.shape), "dtype": "float32"}
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f)
+
+            print(f"✅ Converted {src_path.name} -> {raw_path.name} (v1 shape {arr.shape})")
+            return True
+
+        # v2: flattened model-state tensors serialized as module/key.
+        nested_state = _to_nested_state(data)
+        if not nested_state:
+            print(
+                f"⚠️ {src_path.name} did not match supported schemas (v1 audio_prompt or v2 model-state keys), skipping conversion"
+            )
             return False
 
-        arr = tensor.cpu().numpy() if hasattr(tensor, "cpu") else np.array(tensor)
-        arr = arr.astype("float32")
+        flattened = _flatten_nested_state(nested_state)
+        if not flattened:
+            print(f"⚠️ {src_path.name} had empty v2 model-state tensors, skipping conversion")
+            return False
 
-        raw_path = src_path.with_suffix(".bin")
-        arr.tofile(str(raw_path))
+        compact_seq_len = 1000
+        for _, tensor_value in flattened:
+            arr = np.array(tensor_value, copy=False)
+            if arr.dtype == np.dtype("int64") and arr.size > 0:
+                seq_hint = int(arr.reshape(-1)[0])
+                if 0 < seq_hint < compact_seq_len:
+                    compact_seq_len = seq_hint
 
-        meta = {"shape": list(arr.shape), "dtype": "float32"}
-        meta_path = src_path.with_suffix(".json")
+        entries: list[_StateTensorEntry] = []
+        total_bytes = 0
+        parts: list[bytes] = []
+
+        for index, (source_key, tensor_value) in enumerate(flattened):
+            arr = np.array(tensor_value, copy=False)
+
+            if source_key.endswith("/current_end") and arr.ndim == 1:
+                arr = np.asarray([arr.shape[0]], dtype=np.int64)
+
+            contract_dtype = _dtype_to_contract(arr.dtype)
+            if contract_dtype is None:
+                print(
+                    f"⚠️ {src_path.name} has unsupported dtype for {source_key}: {arr.dtype}, skipping conversion"
+                )
+                return False
+
+            if (
+                contract_dtype == "float32"
+                and arr.ndim >= 3
+                and arr.shape[2] == 1000
+                and 0 < compact_seq_len < arr.shape[2]
+            ):
+                arr = arr[:, :, :compact_seq_len, ...]
+
+            contiguous = np.ascontiguousarray(arr)
+            blob = contiguous.tobytes(order="C")
+            nbytes = len(blob)
+
+            entries.append(
+                _StateTensorEntry(
+                    source_key=source_key,
+                    name=f"state_{index}",
+                    dtype=contract_dtype,
+                    shape=[int(dim) for dim in contiguous.shape],
+                    offset=total_bytes,
+                    nbytes=nbytes,
+                )
+            )
+            parts.append(blob)
+            total_bytes += nbytes
+
+        with open(raw_path, "wb") as raw_file:
+            for part in parts:
+                raw_file.write(part)
+
+        v2_meta = {
+            "format": "pocket_tts_flow_state_v2",
+            "tensor_count": len(entries),
+            "total_bytes": total_bytes,
+            "tensors": [
+                {
+                    "name": entry.name,
+                    "source_key": entry.source_key,
+                    "dtype": entry.dtype,
+                    "shape": entry.shape,
+                    "offset": entry.offset,
+                    "nbytes": entry.nbytes,
+                }
+                for entry in entries
+            ],
+        }
+
         with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(meta, f)
+            json.dump(v2_meta, f)
 
-        print(f"✅ Converted {src_path.name} -> {raw_path.name} (shape {arr.shape})")
+        print(
+            f"✅ Converted {src_path.name} -> {raw_path.name} (v2 state tensors: {len(entries)}, bytes: {total_bytes})"
+        )
         return True
     except Exception as e:
         print(f"⚠️ Failed to convert {src_path.name} to raw: {e}")
@@ -174,7 +301,7 @@ def download_voice_embeddings(repo_id: str, output_dir: Path, token: str | None)
             # helper already printed any failure message
         if skipped:
             print(
-                "⚠️ The following safetensors lacked an audio_prompt or failed to convert:",
+                "⚠️ The following safetensors did not match supported schemas or failed to convert:",
             )
             for name in skipped:
                 print(f"    - {name}")
