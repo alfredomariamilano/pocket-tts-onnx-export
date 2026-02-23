@@ -12,11 +12,14 @@ This package provides a robust pipeline to export **PocketTTS** models to ONNX (
 
 2.  **Run Export**:
     ```bash
-    # Exports FP32 models to ./onnx
+    # Exports FP32 models to ./onnx (also downloads voice embeddings)
     uv run python export.py
 
     # Exports FP32 AND INT8 models (recommended)
     uv run python export.py --quantize
+
+    # Skip downloading voice embeddings and reference sample (useful when offline or gated repo)
+    uv run python export.py --skip-embeddings
 
     # Exports, quantizes, and runs full contract validation
     uv run python export.py --quantize --validate
@@ -38,6 +41,7 @@ The pipeline generates **5 ONNX models + 2 tokenizer artifacts** under `hf/`:
 | **`mimi_decoder.onnx`** | Latents → Audio | Streaming neural codec decoder. |
 | **`tokenizer.json`** | SentencePiece-Unigram tokenizer (HF JSON) | Written to `hf/tokenizer.json`, compatible with `@huggingface/tokenizers` in JS runtimes. |
 | **`tokenizer_config.json`** | Tokenizer runtime metadata | Defines model family + special-token defaults used by downstream runtimes. |
+| **`embeddings/` and `embeddings_v2/`** | Voice‑cloning safetensors | Downloaded from the upstream repo. Each safetensors file is also converted to a plain `.bin` payload plus a small JSON shape descriptor, which makes the voices directly consumable by the Pocket‑TTS runtime. |
 
 All ONNX models are written to `hf/onnx/`.
 

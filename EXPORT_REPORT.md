@@ -22,6 +22,8 @@ $env:PYTHONIOENCODING='utf-8'; uv run python scripts/validate_onnx_contracts.py 
 - `hf/onnx/mimi_decoder_int8.onnx`
 - `hf/onnx/flow_lm_main_int8.onnx`
 - `hf/onnx/flow_lm_flow_int8.onnx`
+- `hf/embeddings/` and `hf/embeddings_v2/` (voice embedding safetensors)
+- `hf/reference_sample.wav` (optional fallback audio sample)
 
 ## ONNX Input Signatures
 
