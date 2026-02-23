@@ -225,7 +225,12 @@ def validate(
 
     e2e = _run_end_to_end_chain(sessions, token_tensor)
 
-    quantized_models = sorted(p.name for p in onnx_dir.glob("*_int8.onnx"))
+    quantized_models = sorted(
+        {
+            *[p.name for p in onnx_dir.glob("*_int8.onnx")],
+            *[p.name for p in onnx_dir.glob("*_q4.onnx")],
+        }
+    )
     quantized_signatures: dict[str, dict[str, list[dict[str, object]]]] = {}
     quantized_inference: dict[str, str] = {}
     for model_name in quantized_models:

@@ -15,8 +15,14 @@ This package provides a robust pipeline to export **PocketTTS** models to ONNX (
     # Exports FP32 models to ./onnx (also downloads voice embeddings)
     uv run python export.py
 
-    # Exports FP32 AND INT8 models (recommended)
+    # Exports FP32 + INT8 models
     uv run python export.py --quantize
+
+    # Exports FP32 + q4 (weight-only MatMul) models
+    uv run python export.py --quantize --quantize-precision q4
+
+    # Exports FP32 + INT8 + q4 models
+    uv run python export.py --quantize --quantize-precision all
 
     # Skip downloading voice embeddings and reference sample (useful when offline or gated repo)
     uv run python export.py --skip-embeddings
@@ -71,8 +77,11 @@ The original PyTorch code uses stateful modules (e.g., `StreamingMultiheadAttent
 *   **Strategy**: We "monkeypatch" these classes during export to expose their internal caches (KV-cache, counters) as distinct **Input/Output** graph nodes. This makes the models purely functional and side-effect free, which is essential for `onnxruntime`.
 
 ### 3. Safe Quantization
-We use **Dynamic Quantization** targeting `MatMul` (Matrix Multiplication) operators only.
-*   **Why?** This ensures broad compatibility (e.g., older CPUs, WebAssembly) and avoids issues with specific operators (like `ConvInteger`) that can be problematic or slow on certain execution providers. It reduces model size by ~70% with negligible quality loss.
+We support two quantization modes targeting `MatMul` operators only:
+*   **INT8 dynamic** (`*_int8.onnx`) via ONNX Runtime dynamic quantization.
+*   **Q4 weight-only** (`*_q4.onnx`) via ONNX Runtime `MatMulNBitsQuantizer` in QOperator mode.
+
+*   **Why MatMul-only?** This keeps broad CPU compatibility and avoids fragile operator rewrites.
 
 ### 4. Tokenizer Export Parity (SentencePiece)
 Tokenizer export is generated from `weights/tokenizer.model` using the **SentencePiece Unigram** model family and written to `hf/tokenizer.json`.

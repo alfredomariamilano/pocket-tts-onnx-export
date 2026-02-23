@@ -460,7 +460,7 @@ def run_export_scripts(skip_embeddings: bool = False):
         print("❌ FlowLM Export Failed")
         sys.exit(1)
 
-def run_quantization():
+def run_quantization(precision: str = "int8", q4_block_size: int = 128):
     print(f"\n--- [Optional] Running Quantization ---")
     
     # Check if input directory has models
@@ -476,7 +476,9 @@ def run_quantization():
         "-m",
         "scripts.quantize",
         "--input_dir", str(ONNX_DIR),
-        "--output_dir", str(QUANT_DIR)
+        "--output_dir", str(QUANT_DIR),
+        "--precision", precision,
+        "--q4-block-size", str(q4_block_size),
     ]
     
     try:
@@ -533,6 +535,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified Export Script for PocketTTS")
     parser.add_argument("--quantize", action="store_true", help="Run INT8 quantization after export")
     parser.add_argument(
+        "--quantize-precision",
+        choices=["int8", "q4", "all"],
+        default="int8",
+        help="Quantization precision profile when --quantize is enabled",
+    )
+    parser.add_argument(
+        "--q4-block-size",
+        type=int,
+        default=128,
+        help="Block size to use for q4 weight-only quantization",
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="Run full tokenizer/ONNX contract validation after export",
@@ -551,7 +565,7 @@ if __name__ == "__main__":
     run_export_scripts(skip_embeddings=args.skip_embeddings)
     
     if args.quantize:
-        run_quantization()
+        run_quantization(precision=args.quantize_precision, q4_block_size=args.q4_block_size)
 
     if args.validate:
         run_full_validation()
