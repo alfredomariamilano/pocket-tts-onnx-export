@@ -125,6 +125,7 @@ def export_monolith_step(onnx_dir: Path, output_name: str) -> Path:
 
     checker.check_model(merged)
 
+
     output_path = onnx_dir / output_name
     onnx.save(merged, str(output_path))
     return output_path

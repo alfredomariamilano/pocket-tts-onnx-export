@@ -52,9 +52,11 @@ def run_monolith_step(session: ort.InferenceSession, token_ids: np.ndarray, step
 
     total_audio_samples = 0
     eos_values: list[float] = []
+    audio_frames: list[np.ndarray] = []
 
     for step in range(steps):
-        inputs["flow_flow/x"] = np.zeros((1, 32), dtype=np.float32)
+        # sample fresh noise each step (Gaussian) to drive the model
+        inputs["flow_flow/x"] = np.random.randn(1, 32).astype(np.float32)
         outputs = session.run(None, inputs)
         output_map = {out.name: arr for out, arr in zip(session.get_outputs(), outputs, strict=False)}
 
@@ -63,6 +65,7 @@ def run_monolith_step(session: ort.InferenceSession, token_ids: np.ndarray, step
         next_latent = output_map["adapter/latent"]
 
         total_audio_samples += int(audio.shape[-1])
+        audio_frames.append(audio.reshape(-1))
         eos_values.append(float(eos.reshape(-1)[0]))
 
         for idx in range(12):
@@ -77,6 +80,7 @@ def run_monolith_step(session: ort.InferenceSession, token_ids: np.ndarray, step
         "total_audio_samples": total_audio_samples,
         "last_eos_logit": eos_values[-1] if eos_values else None,
         "eos_logits": eos_values,
+        "audio_frames": audio_frames,
     }
 
 
@@ -86,10 +90,20 @@ def main() -> int:
     parser.add_argument("--tokenizer-json", default="hf/tokenizer.json", help="Tokenizer JSON path")
     parser.add_argument("--text", default="Testing single-session monolith runtime.", help="Prompt text")
     parser.add_argument("--steps", type=int, default=4, help="Number of autoregressive steps")
+    parser.add_argument("--output-wav", default="runtime_fp32.wav", help="Filename for written audio")
     args = parser.parse_args()
 
     onnx_dir = Path(args.onnx_dir)
     tokenizer_json = Path(args.tokenizer_json)
+
+    # make sure any component exports have the expand-shape fix applied;
+    # this mirrors what our pytest harness does so that long-run failures
+    # appear consistently.
+    from onnx_export.export_utils import fix_expand_shapes
+    for fname in ("flow_lm_main.onnx", "flow_lm_flow.onnx", "mimi_decoder.onnx"):
+        p = onnx_dir / fname
+        if p.exists():
+            fix_expand_shapes(model_path=str(p))
 
     token_ids = _encode_tokens(tokenizer_json, args.text)
 
@@ -104,6 +118,13 @@ def main() -> int:
     print(f"- Steps: {summary['steps']}")
     print(f"- Total audio samples: {summary['total_audio_samples']}")
     print(f"- Last EOS logit: {summary['last_eos_logit']}")
+    # write concatenated audio to file
+    import soundfile as sf
+    audio_concat = np.concatenate(summary.get('audio_frames', [])) if summary.get('audio_frames') else np.zeros(0, dtype=np.float32)
+    if audio_concat.size > 0:
+        outname = args.output_wav
+        sf.write(outname, audio_concat, 24000)
+        print(f'Wrote {outname}')
 
     ar_path = onnx_dir / "monolith_ar.onnx"
     if ar_path.exists():
