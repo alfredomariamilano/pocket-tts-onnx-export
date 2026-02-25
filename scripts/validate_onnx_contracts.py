@@ -16,6 +16,11 @@ REQUIRED_MODELS = [
     "flow_lm_flow.onnx",
 ]
 
+OPTIONAL_MODELS = [
+    "monolith_step.onnx",
+    "monolith_ar.onnx",
+]
+
 
 ORT_TYPE_TO_NP = {
     "tensor(float)": np.float32,
@@ -184,6 +189,53 @@ def _run_end_to_end_chain(
     }
 
 
+def _run_monolith_step_sample(session: ort.InferenceSession, token_tensor: np.ndarray) -> dict[str, object]:
+    feeds = _build_feeds_from_metadata(
+        session,
+        overrides={
+            "token_ids": token_tensor,
+            "flow_main/sequence": np.zeros((1, 1, 32), dtype=np.float32),
+            "flow_flow/s": np.array([[0.0]], dtype=np.float32),
+            "flow_flow/t": np.array([[1.0]], dtype=np.float32),
+            "flow_flow/x": np.zeros((1, 32), dtype=np.float32),
+        },
+    )
+    outputs = session.run(None, feeds)
+    output_infos = session.get_outputs()
+    output_shapes = {
+        info.name: list(value.shape)
+        for info, value in zip(output_infos, outputs, strict=False)
+    }
+    return {
+        "input_count": len(session.get_inputs()),
+        "output_count": len(output_infos),
+        "output_shapes": output_shapes,
+    }
+
+
+def _run_monolith_ar_sample(session: ort.InferenceSession, token_tensor: np.ndarray) -> dict[str, object]:
+    noise_len = 4
+    feeds = _build_feeds_from_metadata(
+        session,
+        overrides={
+            "token_ids": token_tensor,
+            "noise": np.zeros((1, noise_len, 32), dtype=np.float32),
+            "frames_after_eos": np.array([[2]], dtype=np.int64),
+        },
+    )
+    outputs = session.run(None, feeds)
+    output_infos = session.get_outputs()
+    output_shapes = {
+        info.name: list(value.shape)
+        for info, value in zip(output_infos, outputs, strict=False)
+    }
+    return {
+        "input_count": len(session.get_inputs()),
+        "output_count": len(output_infos),
+        "output_shapes": output_shapes,
+    }
+
+
 def validate(
     tokenizer_json_path: Path,
     onnx_dir: Path,
@@ -239,6 +291,26 @@ def validate(
         _run_generic_single_inference(session)
         quantized_inference[model_name] = "ok"
 
+    optional_model_signatures: dict[str, dict[str, list[dict[str, object]]]] = {}
+    optional_model_inference: dict[str, str] = {}
+    monolith_step_sample: dict[str, object] | None = None
+    monolith_ar_sample: dict[str, object] | None = None
+    for model_name in OPTIONAL_MODELS:
+        model_path = onnx_dir / model_name
+        if not model_path.exists():
+            continue
+        try:
+            session = ort.InferenceSession(str(model_path))
+            optional_model_signatures[model_name] = _collect_signatures(session)
+            _run_generic_single_inference(session)
+            optional_model_inference[model_name] = "ok"
+            if model_name == "monolith_step.onnx":
+                monolith_step_sample = _run_monolith_step_sample(session, token_tensor)
+            if model_name == "monolith_ar.onnx":
+                monolith_ar_sample = _run_monolith_ar_sample(session, token_tensor)
+        except Exception as exc:
+            optional_model_inference[model_name] = f"error: {exc}"
+
     report = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "command": "python scripts/validate_onnx_contracts.py",
@@ -259,6 +331,10 @@ def validate(
         "required_model_inference": model_inference,
         "quantized_model_signatures": quantized_signatures,
         "quantized_model_inference": quantized_inference,
+        "optional_model_signatures": optional_model_signatures,
+        "optional_model_inference": optional_model_inference,
+        "monolith_step_sample": monolith_step_sample,
+        "monolith_ar_sample": monolith_ar_sample,
         "end_to_end_sample": e2e,
     }
 
@@ -293,6 +369,32 @@ def validate(
             lines.append(f"- {model_name}: {status}")
     else:
         lines.append("- None found")
+
+    lines.extend([
+        "",
+        "Optional Model Inference:",
+    ])
+    if optional_model_inference:
+        for model_name, status in optional_model_inference.items():
+            lines.append(f"- {model_name}: {status}")
+    else:
+        lines.append("- None found")
+
+    if monolith_step_sample is not None:
+        lines.extend([
+            "",
+            "Monolith-Step Sample:",
+            f"- Input count: {monolith_step_sample['input_count']}",
+            f"- Output count: {monolith_step_sample['output_count']}",
+        ])
+
+    if monolith_ar_sample is not None:
+        lines.extend([
+            "",
+            "Monolith-AR Sample:",
+            f"- Input count: {monolith_ar_sample['input_count']}",
+            f"- Output count: {monolith_ar_sample['output_count']}",
+        ])
 
     lines.extend([
         "",

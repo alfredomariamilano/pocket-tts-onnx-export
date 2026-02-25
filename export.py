@@ -409,7 +409,11 @@ def download_reference_sample(repo_id: str, output_dir: Path, token: str | None)
         print("⚠️ reference_sample.wav not available")
 
 
-def run_export_scripts(skip_embeddings: bool = False):
+def run_export_scripts(
+    skip_embeddings: bool = False,
+    export_monolith_step: bool = False,
+    export_monolith_ar: bool = False,
+):
     print(f"\n--- Running Export Scripts ---")
     
     # Ensure output directory exists
@@ -459,6 +463,38 @@ def run_export_scripts(skip_embeddings: bool = False):
     except subprocess.CalledProcessError:
         print("❌ FlowLM Export Failed")
         sys.exit(1)
+
+    if export_monolith_step:
+        print("\n[3/3] Exporting experimental monolith-step model...")
+        cmd3 = [
+            sys.executable,
+            "-m",
+            "scripts.export_monolith",
+            "--onnx-dir",
+            output_dir_str,
+        ]
+        try:
+            subprocess.run(cmd3, check=True)
+            print("✅ Monolith-step Export Success")
+        except subprocess.CalledProcessError:
+            print("❌ Monolith-step Export Failed")
+            sys.exit(1)
+
+    if export_monolith_ar:
+        print("\n[4/4] Exporting experimental autoregressive monolith model...")
+        cmd4 = [
+            sys.executable,
+            "-m",
+            "scripts.export_monolith_ar",
+            "--onnx-dir",
+            output_dir_str,
+        ]
+        try:
+            subprocess.run(cmd4, check=True)
+            print("✅ Monolith-AR Export Success")
+        except subprocess.CalledProcessError:
+            print("❌ Monolith-AR Export Failed")
+            sys.exit(1)
 
 def run_quantization(precision: str = "int8", q4_block_size: int = 128):
     print(f"\n--- [Optional] Running Quantization ---")
@@ -552,6 +588,16 @@ if __name__ == "__main__":
         help="Run full tokenizer/ONNX contract validation after export",
     )
     parser.add_argument(
+        "--export-monolith-step",
+        action="store_true",
+        help="Export an experimental single-file one-step monolith ONNX artifact",
+    )
+    parser.add_argument(
+        "--export-monolith-ar",
+        action="store_true",
+        help="Export an experimental single-file autoregressive monolith ONNX artifact",
+    )
+    parser.add_argument(
         "--skip-embeddings",
         action="store_true",
         help="Do not download voice‑embedding safetensors from upstream HF repo",
@@ -562,7 +608,11 @@ if __name__ == "__main__":
     download_weights()
     export_hf_readme()
     export_tokenizer_json()
-    run_export_scripts(skip_embeddings=args.skip_embeddings)
+    run_export_scripts(
+        skip_embeddings=args.skip_embeddings,
+        export_monolith_step=args.export_monolith_step,
+        export_monolith_ar=args.export_monolith_ar,
+    )
     
     if args.quantize:
         run_quantization(precision=args.quantize_precision, q4_block_size=args.q4_block_size)

@@ -12,6 +12,8 @@ MODELS_TO_QUANTIZE = [
     "mimi_decoder",
     "mimi_encoder",
     "text_conditioner",
+    "monolith_step",
+    "monolith_ar",
 ]
 
 SUPPORTED_PRECISIONS = ("int8", "q4")

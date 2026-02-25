@@ -173,7 +173,7 @@ def main():
         input_names=["sequence", "text_embeddings"] + state_input_names,
         output_names=["conditioning", "eos_logit"] + state_output_names,
         dynamic_axes={"sequence": {1: "seq_len"}, "text_embeddings": {1: "text_len"}},
-        opset_version=14, dynamo=False
+        opset_version=18, dynamo=False
     )
     print(f"Exported {main_out_path}")
     
@@ -194,7 +194,7 @@ def main():
         input_names=["c", "s", "t", "x"],
         output_names=["flow_dir"],
         dynamic_axes={"c": {0: "batch"}, "s": {0: "batch"}, "t": {0: "batch"}, "x": {0: "batch"}},
-        opset_version=14, dynamo=False
+        opset_version=18, dynamo=False
     )
     print(f"Exported {flow_out_path}")
     print("\nDone! 2-Model split optimization complete.")
