@@ -88,8 +88,8 @@ def main():
     parser.add_argument("--private", action="store_true", help="Create repo as private")
     parser.add_argument(
         "--commit-message",
-        default="Upload hf export artifacts",
-        help="Commit message for upload",
+        default=None,
+        help="Commit message for upload (defaults to latest git commit message)",
     )
     parser.add_argument(
         "--skip-readme",
@@ -101,6 +101,17 @@ def main():
     folder_path = Path(args.folder)
     if not folder_path.exists():
         raise FileNotFoundError(f"Folder not found: {folder_path}")
+
+    # Determine commit message
+    commit_message = args.commit_message
+    if not commit_message:
+        import subprocess
+        try:
+            commit_message = subprocess.check_output([
+                "git", "log", "-1", "--pretty=%B"
+            ], encoding="utf-8").strip()
+        except Exception:
+            commit_message = "Upload hf export artifacts"
 
     token = load_hf_token()
     api = HfApi(token=token)
@@ -120,12 +131,32 @@ def main():
         else:
             raise
 
+    # Build filtered file list for upload
+    def should_include(path: Path):
+        rel = path.relative_to(folder_path)
+        # Exclude onnx_quant folder and its contents
+        if "onnx_quant" in rel.parts:
+            return False
+        # Exclude validation_report files
+        if rel.match("onnx/validation_report.*"):
+            return False
+        # Exclude .safetensors in embeddings and embeddings_v2
+        if rel.parts and rel.parts[0] in ("embeddings", "embeddings_v2") and rel.suffix == ".safetensors":
+            return False
+        return True
+
+    # Recursively collect files to upload
+    files_to_upload = [p for p in folder_path.rglob("*") if p.is_file() and should_include(p)]
+
+    # Remove remote files not present locally (sync)
     api.upload_folder(
         repo_id=args.repo_id,
         repo_type="model",
         folder_path=str(folder_path),
         path_in_repo=".",
-        commit_message=args.commit_message,
+        commit_message=commit_message,
+        allow_patterns=[str(f.relative_to(folder_path)) for f in files_to_upload],
+        delete=True,  # Remove remote files not present locally
     )
     print(f"Uploaded to https://huggingface.co/{args.repo_id}")
 
