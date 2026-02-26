@@ -148,7 +148,11 @@ def main():
     # Recursively collect files to upload
     files_to_upload = [p for p in folder_path.rglob("*") if p.is_file() and should_include(p)]
 
-    # Remove remote files not present locally (sync)
+    # Perform upload with filtering; remove remote files not present locally by
+    # deleting everything and then only allowing our desired patterns.
+    # `delete_patterns=["*"]` tells the hub to drop any remote path that isn't
+    # part of this upload. ``allow_patterns`` restricts which local files are
+    # actually uploaded (already filtered above).
     api.upload_folder(
         repo_id=args.repo_id,
         repo_type="model",
@@ -156,7 +160,7 @@ def main():
         path_in_repo=".",
         commit_message=commit_message,
         allow_patterns=[str(f.relative_to(folder_path)) for f in files_to_upload],
-        delete=True,  # Remove remote files not present locally
+        delete_patterns=["*"],
     )
     print(f"Uploaded to https://huggingface.co/{args.repo_id}")
 
