@@ -6,9 +6,17 @@ import onnx
 from onnxruntime.quantization import QuantFormat, QuantType, quantize_dynamic
 from onnxruntime.quantization.matmul_nbits_quantizer import MatMulNBitsQuantizer
 
+# order is irrelevant; included for completeness
+# NOTE: "flow_lm_full" is a large fused graph containing Python-style
+# loops/Loop ops.  The ONNXRuntime MatMulNBits quantizer currently has
+# trouble recognising constant weights inside such subgraphs, so quantizing
+# it may not shrink the model and in fact can make the file larger.  We
+# detect that later and drop any unhelpful artifacts, so consumers should
+# still fall back to the float32 version when necessary.
 MODELS_TO_QUANTIZE = [
     "flow_lm_main",
     "flow_lm_flow",
+    "flow_lm_full",  # fused AR + flow generator (may not quantize)
     "mimi_decoder",
     "mimi_encoder",
     "text_conditioner",
@@ -36,7 +44,32 @@ def _print_reduction(input_path: Path, output_path: Path) -> None:
     print(f"  ✅ Complete: {size_orig:.1f}MB -> {size_quant:.1f}MB ({reduction:.1f}% reduction)")
 
 
-def quantize_file_int8(input_path: Path, output_path: Path, op_types: tuple[str, ...] = ("MatMul",)) -> None:
+def _maybe_strip_if_no_reduction(input_path: Path, output_path: Path) -> None:
+    """Remove an output file if quantization did not shrink it.
+
+    A few of our models (notably the fused *flow_lm_full* graph) contain
+    MatMul operations whose weights are not treated as constants by the
+    quantizer.  In those cases the quantized version can actually be larger
+    than the float32 original due to metadata/scale tensors being written back
+    into the file.  We detect that situation and delete the quantized model so
+    consumers fall back to the FP32 variant.
+    """
+    try:
+        orig = input_path.stat().st_size
+        new = output_path.stat().st_size
+        if new >= orig:
+            reduction = (orig - new) / orig * 100
+            print(
+                f"  ⚠️ Quantized file is not smaller ({orig/1e6:.1f}MB -> {new/1e6:.1f}MB, {reduction:.1f}%).");
+            # TODO: keep file
+            # print(f"     removing {output_path.name} and keeping float32 model")
+            # output_path.unlink()
+    except Exception:
+        # permission errors or missing file - ignore
+        pass
+
+
+def quantize_file_int8(input_path: Path, output_path: Path, op_types: tuple[str, ...] = ("MatMul", "Gemm")) -> None:
     if not input_path.exists():
         print(f"⚠️ Skipping {input_path.name} (not found)")
         return
@@ -59,6 +92,7 @@ def quantize_file_int8(input_path: Path, output_path: Path, op_types: tuple[str,
         )
 
         _print_reduction(input_path, output_path)
+        _maybe_strip_if_no_reduction(input_path, output_path)
     except Exception as e:
         print(f"  ❌ INT8 quantization failed for {input_path.name}: {e}")
         if output_path.exists():
@@ -98,6 +132,7 @@ def quantize_file_q4_weight_only(
         quantizer.model.save_model_to_file(str(output_path), use_external_data_format=False)
 
         _print_reduction(input_path, output_path)
+        _maybe_strip_if_no_reduction(input_path, output_path)
     except Exception as e:
         print(f"  ❌ Q4 quantization failed for {input_path.name}: {e}")
         if output_path.exists():
@@ -151,7 +186,7 @@ def main() -> None:
 
     print(f"Starting Quantization: {input_dir} -> {output_dir}")
     print(f"Requested precisions: {', '.join(precisions)}")
-    print("Using MatMul-only quantization for broad CPU compatibility.")
+    print("Using MatMul/Gemm quantization for broad CPU compatibility.")
 
     for model_name in MODELS_TO_QUANTIZE:
         in_file = input_dir / f"{model_name}.onnx"

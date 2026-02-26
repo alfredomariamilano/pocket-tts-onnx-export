@@ -5,7 +5,13 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-from tokenizers import Tokenizer
+import sys
+try:
+    from tokenizers import Tokenizer
+except ImportError:
+    print("error: Python package 'tokenizers' is required for ONNX contract validation.\n"
+          "Install it via `pip install tokenizers` and rerun the script.")
+    sys.exit(1)
 
 
 REQUIRED_MODELS = [
@@ -234,10 +240,20 @@ def validate(
     quantized_signatures: dict[str, dict[str, list[dict[str, object]]]] = {}
     quantized_inference: dict[str, str] = {}
     for model_name in quantized_models:
-        session = ort.InferenceSession(str(onnx_dir / model_name))
-        quantized_signatures[model_name] = _collect_signatures(session)
-        _run_generic_single_inference(session)
-        quantized_inference[model_name] = "ok"
+        try:
+            session = ort.InferenceSession(str(onnx_dir / model_name))
+            quantized_signatures[model_name] = _collect_signatures(session)
+            _run_generic_single_inference(session)
+            quantized_inference[model_name] = "ok"
+        except Exception as e:
+            # some quantized variants have known shape/compatibility issues
+            # (e.g. flow_lm_full_int8) that cause ONNXRuntime to fail during
+            # session creation.  report the error and continue rather than
+            # aborting the entire validation run.
+            quantized_inference[model_name] = f"error: {e}"
+            # signatures may not exist; leave absent or empty
+            quantized_signatures[model_name] = {}
+            continue
 
     report = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),

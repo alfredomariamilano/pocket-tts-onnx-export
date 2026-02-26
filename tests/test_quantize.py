@@ -13,6 +13,9 @@ def test_resolve_precisions_variants():
 def test_output_filename_suffixes():
     assert quantize._output_filename("flow_lm_main", "int8") == "flow_lm_main_int8.onnx"
     assert quantize._output_filename("flow_lm_main", "q4") == "flow_lm_main_q4.onnx"
+    # fused generator name
+    assert quantize._output_filename("flow_lm_full", "int8") == "flow_lm_full_int8.onnx"
+    assert quantize._output_filename("flow_lm_full", "q4") == "flow_lm_full_q4.onnx"
 
 
 def test_main_dispatches_all_precisions(monkeypatch, tmp_path):
@@ -93,3 +96,32 @@ def test_main_default_precision_int8_only(monkeypatch, tmp_path):
     quantize.main()
 
     assert calls == [("int8", "flow_lm_flow.onnx", "flow_lm_flow_int8.onnx")]
+
+
+def test_default_op_types_include_gemm():
+    # ensure the default op_types tuple covers both MatMul and Gemm
+    assert "MatMul" in quantize.quantize_file_int8.__defaults__[0]
+    assert "Gemm" in quantize.quantize_file_int8.__defaults__[0]
+
+
+def test_strip_if_no_reduction(tmp_path):
+    """helper should delete quant outputs that are not smaller"""
+    inp = tmp_path / "a.onnx"
+    out = tmp_path / "b.onnx"
+    inp.write_bytes(b"orig")
+    # create a file artificially larger
+    out.write_bytes(b"bigger than original")
+
+    quantize._maybe_strip_if_no_reduction(inp, out)
+    assert not out.exists()
+
+
+def test_strip_if_reduction_kept(tmp_path):
+    """quant output that is smaller should be preserved"""
+    inp = tmp_path / "a.onnx"
+    out = tmp_path / "b.onnx"
+    inp.write_bytes(b"orig")
+    out.write_bytes(b"ok")
+
+    quantize._maybe_strip_if_no_reduction(inp, out)
+    assert out.exists()

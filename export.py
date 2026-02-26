@@ -453,6 +453,8 @@ def run_export_scripts(skip_embeddings: bool = False):
         "--output_dir", output_dir_str,
         "--weights_path", weights_path
     ]
+    if args.pytorch_quantize:
+        cmd2.append("--pytorch-quantize")
     try:
         subprocess.run(cmd2, check=True)
         print("✅ FlowLM Export Success")
@@ -555,6 +557,11 @@ if __name__ == "__main__":
         "--skip-embeddings",
         action="store_true",
         help="Do not download voice‑embedding safetensors from upstream HF repo",
+    )
+    parser.add_argument(
+        "--pytorch-quantize",
+        action="store_true",
+        help="Export FlowLM using a PyTorch-dynamically-quantized model (int8 weights)",
     )
     args = parser.parse_args()
 
