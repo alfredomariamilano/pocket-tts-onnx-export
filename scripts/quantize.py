@@ -5,6 +5,7 @@ from pathlib import Path
 import onnx
 from onnxruntime.quantization import QuantFormat, QuantType, quantize_dynamic
 from onnxruntime.quantization.matmul_nbits_quantizer import MatMulNBitsQuantizer
+from onnx_export.external_data import rewrite_model_external_data
 
 MODELS_TO_QUANTIZE = [
     "flow_lm_main",
@@ -137,6 +138,25 @@ def main() -> None:
         default=128,
         help="Block size for q4 weight-only quantization",
     )
+    parser.add_argument(
+        "--external-data",
+        dest="external_data",
+        action="store_true",
+        help="Save tensor weights to external data sidecar files",
+    )
+    parser.add_argument(
+        "--no-external-data",
+        dest="external_data",
+        action="store_false",
+        help="Keep tensor weights embedded in the .onnx files",
+    )
+    parser.add_argument(
+        "--external-data-suffix",
+        type=str,
+        default=".onnx_data",
+        help="Suffix for per-model external tensor data files",
+    )
+    parser.set_defaults(external_data=True)
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -161,6 +181,15 @@ def main() -> None:
                 quantize_file_int8(in_file, out_file)
             elif precision == "q4":
                 quantize_file_q4_weight_only(in_file, out_file, block_size=args.q4_block_size)
+
+            if out_file.exists():
+                sidecar = rewrite_model_external_data(
+                    out_file,
+                    use_external_data=args.external_data,
+                    suffix=args.external_data_suffix,
+                )
+                if sidecar is not None:
+                    print(f"  ↳ external tensor data: {sidecar.name}")
 
     print("\nQuantization routine finished.")
 

@@ -13,6 +13,7 @@ from pocket_tts.default_parameters import DEFAULT_VARIANT
 from pocket_tts.modules.stateful_module import init_states
 import pocket_tts.modules.transformer as transformer_module
 from onnx_export.export_utils import get_state_structure, flatten_state
+from onnx_export.external_data import rewrite_model_external_data
 
 # ==============================================================================
 # 1. MONKEYPATCHES
@@ -129,6 +130,25 @@ def main():
     parser = argparse.ArgumentParser(description="Export FlowLM models to ONNX.")
     parser.add_argument("--output_dir", "-o", type=str, default="onnx_models", help="Directory for output ONNX files")
     parser.add_argument("--weights_path", "-w", type=str, default="weights/tts_b6369a24.safetensors", help="Path to weights file used to load FlowLM")
+    parser.add_argument(
+        "--external-data",
+        dest="external_data",
+        action="store_true",
+        help="Save tensor weights to external data sidecar files",
+    )
+    parser.add_argument(
+        "--no-external-data",
+        dest="external_data",
+        action="store_false",
+        help="Keep tensor weights embedded in the .onnx files",
+    )
+    parser.add_argument(
+        "--external-data-suffix",
+        type=str,
+        default=".onnx_data",
+        help="Suffix for per-model external tensor data files",
+    )
+    parser.set_defaults(external_data=True)
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -176,6 +196,13 @@ def main():
         opset_version=14, dynamo=False
     )
     print(f"Exported {main_out_path}")
+    main_sidecar = rewrite_model_external_data(
+        main_out_path,
+        use_external_data=args.external_data,
+        suffix=args.external_data_suffix,
+    )
+    if main_sidecar is not None:
+        print(f"  ↳ external tensor data: {main_sidecar}")
     
     # 2. Flow Net Model
     print("\nExporting Flow Net Model...")
@@ -197,6 +224,13 @@ def main():
         opset_version=14, dynamo=False
     )
     print(f"Exported {flow_out_path}")
+    flow_sidecar = rewrite_model_external_data(
+        flow_out_path,
+        use_external_data=args.external_data,
+        suffix=args.external_data_suffix,
+    )
+    if flow_sidecar is not None:
+        print(f"  ↳ external tensor data: {flow_sidecar}")
     print("\nDone! 2-Model split optimization complete.")
 
 if __name__ == "__main__":

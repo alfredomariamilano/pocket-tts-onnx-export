@@ -62,6 +62,7 @@ from pocket_tts.models.tts_model import TTSModel
 from pocket_tts.default_parameters import DEFAULT_VARIANT
 from pocket_tts.modules.stateful_module import init_states
 from onnx_export.export_utils import get_state_structure, flatten_state, unflatten_state
+from onnx_export.external_data import rewrite_model_external_data
 
 from pocket_tts.modules.conv import StreamingConv1d, StreamingConvTranspose1d
 def patched_conv1d_forward(self, x, model_state: dict | None):
@@ -128,7 +129,12 @@ def patched_get_extra_padding(x, kernel_size, stride, padding_total=0):
     return ideal_length - length
 conv.get_extra_padding_for_conv1d = patched_get_extra_padding
 
-def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.safetensors"):
+def export_models(
+    output_dir="onnx_models",
+    weights_path="weights/tts_b6369a24.safetensors",
+    external_data: bool = True,
+    external_data_suffix: str = ".onnx_data",
+):
     os.makedirs(output_dir, exist_ok=True)
 
     print("Loading model...")
@@ -177,7 +183,14 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         dynamo=True,
         external_data=False
     )
+    encoder_sidecar = rewrite_model_external_data(
+        encoder_onnx_path,
+        use_external_data=external_data,
+        suffix=external_data_suffix,
+    )
     print(f"Mimi Encoder exported to {encoder_onnx_path}")
+    if encoder_sidecar is not None:
+        print(f"  ↳ external tensor data: {encoder_sidecar}")
     
     # ---------------------------------------------------------
     # Export Text Conditioner (tokens -> embeddings)
@@ -202,7 +215,14 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         dynamo=True,
         external_data=False
     )
+    conditioner_sidecar = rewrite_model_external_data(
+        conditioner_onnx_path,
+        use_external_data=external_data,
+        suffix=external_data_suffix,
+    )
     print(f"Text Conditioner exported to {conditioner_onnx_path}")
+    if conditioner_sidecar is not None:
+        print(f"  ↳ external tensor data: {conditioner_sidecar}")
     
     # Initialize state with static size sufficient for expected usage
     # 1000 tokens covers ~40s audio or long text prompts
@@ -250,7 +270,14 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         opset_version=18,
         dynamo=False
     )
+    mimi_sidecar = rewrite_model_external_data(
+        mimi_onnx_path,
+        use_external_data=external_data,
+        suffix=external_data_suffix,
+    )
     print(f"Mimi exported to {mimi_onnx_path}")
+    if mimi_sidecar is not None:
+        print(f"  ↳ external tensor data: {mimi_sidecar}")
     
     return flow_lm_onnx_path, mimi_onnx_path, tts_model
 
@@ -382,9 +409,33 @@ def main():
     parser = argparse.ArgumentParser(description="Export Mimi and Conditioner models to ONNX.")
     parser.add_argument("--output_dir", "-o", type=str, default="onnx_models", help="Directory for output ONNX files")
     parser.add_argument("--weights_path", "-w", type=str, default="weights/tts_b6369a24.safetensors", help="Path to weights file")
+    parser.add_argument(
+        "--external-data",
+        dest="external_data",
+        action="store_true",
+        help="Save tensor weights to external data sidecar files",
+    )
+    parser.add_argument(
+        "--no-external-data",
+        dest="external_data",
+        action="store_false",
+        help="Keep tensor weights embedded in the .onnx files",
+    )
+    parser.add_argument(
+        "--external-data-suffix",
+        type=str,
+        default=".onnx_data",
+        help="Suffix for per-model external tensor data files",
+    )
+    parser.set_defaults(external_data=True)
     args = parser.parse_args()
     
-    flow, mimi, model = export_models(output_dir=args.output_dir, weights_path=args.weights_path)
+    flow, mimi, model = export_models(
+        output_dir=args.output_dir,
+        weights_path=args.weights_path,
+        external_data=args.external_data,
+        external_data_suffix=args.external_data_suffix,
+    )
     verify_export(flow, mimi, model, output_dir=args.output_dir)
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
+from onnx_export.external_data import sidecar_path_for_model
 
 
 REQUIRED_MODELS = [
@@ -190,6 +191,8 @@ def validate(
     report_json_path: Path,
     report_text_path: Path,
     sample_text: str,
+    expect_external_data: bool,
+    external_data_suffix: str,
 ) -> dict[str, object]:
     if not tokenizer_json_path.exists():
         raise FileNotFoundError(f"Tokenizer JSON not found: {tokenizer_json_path}")
@@ -207,6 +210,10 @@ def validate(
         model_path = onnx_dir / model_name
         if not model_path.exists():
             raise FileNotFoundError(f"Required ONNX model not found: {model_path}")
+        if expect_external_data:
+            sidecar = sidecar_path_for_model(model_path, suffix=external_data_suffix)
+            if not sidecar.exists():
+                raise FileNotFoundError(f"Expected ONNX external data sidecar not found: {sidecar}")
 
         session = ort.InferenceSession(str(model_path))
         sessions[model_name] = session
@@ -234,7 +241,12 @@ def validate(
     quantized_signatures: dict[str, dict[str, list[dict[str, object]]]] = {}
     quantized_inference: dict[str, str] = {}
     for model_name in quantized_models:
-        session = ort.InferenceSession(str(onnx_dir / model_name))
+        model_path = onnx_dir / model_name
+        if expect_external_data:
+            sidecar = sidecar_path_for_model(model_path, suffix=external_data_suffix)
+            if not sidecar.exists():
+                raise FileNotFoundError(f"Expected ONNX external data sidecar not found: {sidecar}")
+        session = ort.InferenceSession(str(model_path))
         quantized_signatures[model_name] = _collect_signatures(session)
         _run_generic_single_inference(session)
         quantized_inference[model_name] = "ok"
@@ -242,6 +254,10 @@ def validate(
     report = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "command": "python scripts/validate_onnx_contracts.py",
+        "external_data": {
+            "expected": expect_external_data,
+            "suffix": external_data_suffix,
+        },
         "tokenizer": {
             "path": str(tokenizer_json_path),
             "sample_text": sample_text,
@@ -341,6 +357,16 @@ def main() -> int:
         default="Pocket TTS should accept int64 token ids in ONNX runtime.",
         help="Sample sentence for tokenizer + conditioner validation",
     )
+    parser.add_argument(
+        "--expect-external-data",
+        action="store_true",
+        help="Require each ONNX model to have an external tensor sidecar file",
+    )
+    parser.add_argument(
+        "--external-data-suffix",
+        default=".onnx_data",
+        help="Suffix for external tensor sidecar files",
+    )
     args = parser.parse_args()
 
     validate(
@@ -349,6 +375,8 @@ def main() -> int:
         report_json_path=Path(args.report_json),
         report_text_path=Path(args.report_text),
         sample_text=args.sample_text,
+        expect_external_data=args.expect_external_data,
+        external_data_suffix=args.external_data_suffix,
     )
 
     print("✅ ONNX/tokenizer contract validation passed")

@@ -409,7 +409,11 @@ def download_reference_sample(repo_id: str, output_dir: Path, token: str | None)
         print("⚠️ reference_sample.wav not available")
 
 
-def run_export_scripts(skip_embeddings: bool = False):
+def run_export_scripts(
+    skip_embeddings: bool = False,
+    external_data: bool = True,
+    external_data_suffix: str = ".onnx_data",
+):
     print(f"\n--- Running Export Scripts ---")
     
     # Ensure output directory exists
@@ -435,8 +439,10 @@ def run_export_scripts(skip_embeddings: bool = False):
         "-m",
         "scripts.export_mimi_and_conditioner",
         "--output_dir", output_dir_str,
-        "--weights_path", weights_path
+        "--weights_path", weights_path,
+        "--external-data-suffix", external_data_suffix,
     ]
+    cmd1.append("--external-data" if external_data else "--no-external-data")
     try:
         subprocess.run(cmd1, check=True)
         print("✅ Mimi/Conditioner Export Success")
@@ -451,8 +457,10 @@ def run_export_scripts(skip_embeddings: bool = False):
         "-m",
         "scripts.export_flow_lm",
         "--output_dir", output_dir_str,
-        "--weights_path", weights_path
+        "--weights_path", weights_path,
+        "--external-data-suffix", external_data_suffix,
     ]
+    cmd2.append("--external-data" if external_data else "--no-external-data")
     try:
         subprocess.run(cmd2, check=True)
         print("✅ FlowLM Export Success")
@@ -460,7 +468,12 @@ def run_export_scripts(skip_embeddings: bool = False):
         print("❌ FlowLM Export Failed")
         sys.exit(1)
 
-def run_quantization(precision: str = "int8", q4_block_size: int = 128):
+def run_quantization(
+    precision: str = "int8",
+    q4_block_size: int = 128,
+    external_data: bool = True,
+    external_data_suffix: str = ".onnx_data",
+):
     print(f"\n--- [Optional] Running Quantization ---")
     
     # Check if input directory has models
@@ -479,7 +492,9 @@ def run_quantization(precision: str = "int8", q4_block_size: int = 128):
         "--output_dir", str(QUANT_DIR),
         "--precision", precision,
         "--q4-block-size", str(q4_block_size),
+        "--external-data-suffix", external_data_suffix,
     ]
+    cmd.append("--external-data" if external_data else "--no-external-data")
     
     try:
         subprocess.run(cmd, check=True)
@@ -488,13 +503,20 @@ def run_quantization(precision: str = "int8", q4_block_size: int = 128):
         print("❌ Quantization Failed")
 
 
-def run_full_validation():
+def run_full_validation(
+    expect_external_data: bool = True,
+    external_data_suffix: str = ".onnx_data",
+):
     print("\n--- Running Full Contract Validation ---")
     cmd = [
         sys.executable,
         "-m",
         "scripts.validate_onnx_contracts",
+        "--external-data-suffix",
+        external_data_suffix,
     ]
+    if expect_external_data:
+        cmd.append("--expect-external-data")
     try:
         subprocess.run(cmd, check=True)
         print("✅ Full contract validation success")
@@ -507,6 +529,7 @@ def print_summary():
     print("Files:")
     if OUTPUT_DIR.exists():
         output_files = list(ONNX_DIR.glob("*.onnx"))
+        output_files.extend(ONNX_DIR.glob("*.onnx_data"))
         tokenizer_json = OUTPUT_DIR / TOKENIZER_JSON_FILENAME
         tokenizer_config = OUTPUT_DIR / TOKENIZER_CONFIG_FILENAME
         if tokenizer_json.exists():
@@ -556,18 +579,49 @@ if __name__ == "__main__":
         action="store_true",
         help="Do not download voice‑embedding safetensors from upstream HF repo",
     )
+    parser.add_argument(
+        "--external-data",
+        dest="external_data",
+        action="store_true",
+        help="Save ONNX tensor weights in sidecar files for memory-mapped runtimes",
+    )
+    parser.add_argument(
+        "--no-external-data",
+        dest="external_data",
+        action="store_false",
+        help="Keep ONNX tensor weights embedded in .onnx files",
+    )
+    parser.add_argument(
+        "--external-data-suffix",
+        type=str,
+        default=".onnx_data",
+        help="Suffix for per-model external tensor data files",
+    )
+    parser.set_defaults(external_data=True)
     args = parser.parse_args()
 
     install_check()
     download_weights()
     export_hf_readme()
     export_tokenizer_json()
-    run_export_scripts(skip_embeddings=args.skip_embeddings)
+    run_export_scripts(
+        skip_embeddings=args.skip_embeddings,
+        external_data=args.external_data,
+        external_data_suffix=args.external_data_suffix,
+    )
     
     if args.quantize:
-        run_quantization(precision=args.quantize_precision, q4_block_size=args.q4_block_size)
+        run_quantization(
+            precision=args.quantize_precision,
+            q4_block_size=args.q4_block_size,
+            external_data=args.external_data,
+            external_data_suffix=args.external_data_suffix,
+        )
 
     if args.validate:
-        run_full_validation()
+        run_full_validation(
+            expect_external_data=args.external_data,
+            external_data_suffix=args.external_data_suffix,
+        )
         
     print_summary()
