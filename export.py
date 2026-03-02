@@ -413,6 +413,7 @@ def run_export_scripts(
     skip_embeddings: bool = False,
     external_data: bool = True,
     external_data_suffix: str = ".onnx_data",
+    ort_optimize: bool = True,
 ):
     print(f"\n--- Running Export Scripts ---")
     
@@ -443,6 +444,7 @@ def run_export_scripts(
         "--external-data-suffix", external_data_suffix,
     ]
     cmd1.append("--external-data" if external_data else "--no-external-data")
+    cmd1.append("--ort-optimize" if ort_optimize else "--no-ort-optimize")
     try:
         subprocess.run(cmd1, check=True)
         print("✅ Mimi/Conditioner Export Success")
@@ -461,6 +463,7 @@ def run_export_scripts(
         "--external-data-suffix", external_data_suffix,
     ]
     cmd2.append("--external-data" if external_data else "--no-external-data")
+    cmd2.append("--ort-optimize" if ort_optimize else "--no-ort-optimize")
     try:
         subprocess.run(cmd2, check=True)
         print("✅ FlowLM Export Success")
@@ -473,6 +476,7 @@ def run_quantization(
     q4_block_size: int = 128,
     external_data: bool = True,
     external_data_suffix: str = ".onnx_data",
+    ort_optimize: bool = True,
 ):
     print(f"\n--- [Optional] Running Quantization ---")
     
@@ -495,6 +499,7 @@ def run_quantization(
         "--external-data-suffix", external_data_suffix,
     ]
     cmd.append("--external-data" if external_data else "--no-external-data")
+    cmd.append("--ort-optimize" if ort_optimize else "--no-ort-optimize")
     
     try:
         subprocess.run(cmd, check=True)
@@ -597,7 +602,19 @@ if __name__ == "__main__":
         default=".onnx_data",
         help="Suffix for per-model external tensor data files",
     )
-    parser.set_defaults(external_data=True)
+    parser.add_argument(
+        "--ort-optimize",
+        dest="ort_optimize",
+        action="store_true",
+        help="Run ONNX Runtime graph optimization before final save",
+    )
+    parser.add_argument(
+        "--no-ort-optimize",
+        dest="ort_optimize",
+        action="store_false",
+        help="Disable ONNX Runtime graph optimization before final save",
+    )
+    parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
 
     install_check()
@@ -608,6 +625,7 @@ if __name__ == "__main__":
         skip_embeddings=args.skip_embeddings,
         external_data=args.external_data,
         external_data_suffix=args.external_data_suffix,
+        ort_optimize=args.ort_optimize,
     )
     
     if args.quantize:
@@ -616,6 +634,7 @@ if __name__ == "__main__":
             q4_block_size=args.q4_block_size,
             external_data=args.external_data,
             external_data_suffix=args.external_data_suffix,
+            ort_optimize=args.ort_optimize,
         )
 
     if args.validate:

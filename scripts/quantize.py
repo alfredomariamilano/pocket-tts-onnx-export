@@ -156,7 +156,19 @@ def main() -> None:
         default=".onnx_data",
         help="Suffix for per-model external tensor data files",
     )
-    parser.set_defaults(external_data=True)
+    parser.add_argument(
+        "--ort-optimize",
+        dest="ort_optimize",
+        action="store_true",
+        help="Run ONNX Runtime graph optimization before final save",
+    )
+    parser.add_argument(
+        "--no-ort-optimize",
+        dest="ort_optimize",
+        action="store_false",
+        help="Disable ONNX Runtime graph optimization before final save",
+    )
+    parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -187,6 +199,7 @@ def main() -> None:
                     out_file,
                     use_external_data=args.external_data,
                     suffix=args.external_data_suffix,
+                    ort_optimize=args.ort_optimize,
                 )
                 if sidecar is not None:
                     print(f"  ↳ external tensor data: {sidecar.name}")

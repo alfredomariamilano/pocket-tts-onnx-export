@@ -134,6 +134,7 @@ def export_models(
     weights_path="weights/tts_b6369a24.safetensors",
     external_data: bool = True,
     external_data_suffix: str = ".onnx_data",
+    ort_optimize: bool = True,
 ):
     os.makedirs(output_dir, exist_ok=True)
 
@@ -187,6 +188,7 @@ def export_models(
         encoder_onnx_path,
         use_external_data=external_data,
         suffix=external_data_suffix,
+        ort_optimize=ort_optimize,
     )
     print(f"Mimi Encoder exported to {encoder_onnx_path}")
     if encoder_sidecar is not None:
@@ -219,6 +221,7 @@ def export_models(
         conditioner_onnx_path,
         use_external_data=external_data,
         suffix=external_data_suffix,
+        ort_optimize=ort_optimize,
     )
     print(f"Text Conditioner exported to {conditioner_onnx_path}")
     if conditioner_sidecar is not None:
@@ -274,6 +277,7 @@ def export_models(
         mimi_onnx_path,
         use_external_data=external_data,
         suffix=external_data_suffix,
+        ort_optimize=ort_optimize,
     )
     print(f"Mimi exported to {mimi_onnx_path}")
     if mimi_sidecar is not None:
@@ -427,7 +431,19 @@ def main():
         default=".onnx_data",
         help="Suffix for per-model external tensor data files",
     )
-    parser.set_defaults(external_data=True)
+    parser.add_argument(
+        "--ort-optimize",
+        dest="ort_optimize",
+        action="store_true",
+        help="Run ONNX Runtime graph optimization before final save",
+    )
+    parser.add_argument(
+        "--no-ort-optimize",
+        dest="ort_optimize",
+        action="store_false",
+        help="Disable ONNX Runtime graph optimization before final save",
+    )
+    parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
     
     flow, mimi, model = export_models(
@@ -435,6 +451,7 @@ def main():
         weights_path=args.weights_path,
         external_data=args.external_data,
         external_data_suffix=args.external_data_suffix,
+        ort_optimize=args.ort_optimize,
     )
     verify_export(flow, mimi, model, output_dir=args.output_dir)
 
