@@ -17,7 +17,7 @@ def _optimize_with_ort(model_path: Path) -> Path | None:
             optimized_path.unlink()
 
         session_options = ort.SessionOptions()
-        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
         session_options.optimized_model_filepath = str(optimized_path)
 
         ort.InferenceSession(
