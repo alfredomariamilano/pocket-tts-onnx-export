@@ -1,0 +1,43 @@
+Pocket-TTS ONNX Contract Validation Report
+Timestamp (UTC): 2026-03-03T05:18:38.559807+00:00
+Command: python scripts/validate_onnx_contracts.py
+
+Tokenizer Checks:
+- Path: hf\tokenizer.json
+- Sample text: Pocket TTS should accept int64 token ids in ONNX runtime.
+- IDs are integers: True
+- Token tensor dtype: int64
+- Token tensor shape: [1, 28]
+
+Required Model Inference:
+- text_conditioner.onnx: ok: output_shape=[1, 28, 1024]
+- mimi_encoder.onnx: ok
+- mimi_decoder.onnx: ok
+- flow_lm_main.onnx: ok
+- flow_lm_flow.onnx: ok
+
+Quantized Model Inference:
+- flow_lm_flow_int8.onnx: ok
+- flow_lm_main_int8.onnx: ok
+- mimi_decoder_int8.onnx: ok
+- mimi_encoder_int8.onnx: ok
+- text_conditioner_int8.onnx: ok
+
+Model Metrics:
+- text_conditioner.onnx: nodes=1, initializers=1, total_size=15.6 MB
+- mimi_encoder.onnx: nodes=217, initializers=96, total_size=69.3 MB
+- mimi_decoder.onnx: nodes=462, initializers=118, total_size=39.5 MB
+- flow_lm_main.onnx: nodes=1004, initializers=191, total_size=288.5 MB
+- flow_lm_flow.onnx: nodes=231, initializers=76, total_size=37.3 MB
+
+Latency (ms):
+- flow_lm_main_warm: 26.389
+
+End-to-End Sample:
+- Token count: 28
+- Text embeddings shape: [1, 28, 1024]
+- Conditioning shape: [1, 1024]
+- Latent step shape: [1, 32]
+- Audio frame shape: [1, 1, 1920]
+
+JSON signature report: hf\onnx\validation_report.json

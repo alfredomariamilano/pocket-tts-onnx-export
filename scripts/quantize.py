@@ -1,6 +1,7 @@
 
 import argparse
 from pathlib import Path
+from typing import Iterable
 
 import onnx
 from onnxruntime.quantization import QuantFormat, QuantType, quantize_dynamic
@@ -16,6 +17,40 @@ MODELS_TO_QUANTIZE = [
 ]
 
 SUPPORTED_PRECISIONS = ("int8", "q4")
+
+
+def _parse_csv_list(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _parse_model_node_filters(entries: Iterable[str] | None) -> dict[str, list[str]]:
+    mapping: dict[str, list[str]] = {}
+    if not entries:
+        return mapping
+
+    for entry in entries:
+        model_name, sep, nodes_raw = entry.partition(":")
+        key = model_name.strip()
+        if not sep or not key:
+            raise ValueError(
+                f"Invalid model node filter '{entry}'. Expected format: model_name:node_a,node_b"
+            )
+        mapping[key] = _parse_csv_list(nodes_raw)
+    return mapping
+
+
+def _model_quant_filters(
+    model_name: str,
+    include_default: list[str],
+    exclude_default: list[str],
+    include_overrides: dict[str, list[str]],
+    exclude_overrides: dict[str, list[str]],
+) -> tuple[list[str], list[str]]:
+    include = include_overrides.get(model_name, include_default)
+    exclude = exclude_overrides.get(model_name, exclude_default)
+    return include, exclude
 
 
 def _resolve_precisions(selection: str) -> list[str]:
@@ -37,7 +72,13 @@ def _print_reduction(input_path: Path, output_path: Path) -> None:
     print(f"  ✅ Complete: {size_orig:.1f}MB -> {size_quant:.1f}MB ({reduction:.1f}% reduction)")
 
 
-def quantize_file_int8(input_path: Path, output_path: Path, op_types: tuple[str, ...] = ("MatMul",)) -> None:
+def quantize_file_int8(
+    input_path: Path,
+    output_path: Path,
+    op_types: tuple[str, ...] = ("MatMul",),
+    nodes_to_quantize: list[str] | None = None,
+    nodes_to_exclude: list[str] | None = None,
+) -> None:
     if not input_path.exists():
         print(f"⚠️ Skipping {input_path.name} (not found)")
         return
@@ -56,6 +97,8 @@ def quantize_file_int8(input_path: Path, output_path: Path, op_types: tuple[str,
             model_output=str(output_path),
             weight_type=QuantType.QInt8,
             op_types_to_quantize=op_types,
+            nodes_to_quantize=nodes_to_quantize,
+            nodes_to_exclude=nodes_to_exclude,
             extra_options={"ForceQuantizeNoType": True, "DefaultTensorType": 1},
         )
 
@@ -74,6 +117,8 @@ def quantize_file_q4_weight_only(
     output_path: Path,
     block_size: int = 128,
     op_types: tuple[str, ...] = ("MatMul",),
+    nodes_to_quantize: list[str] | None = None,
+    nodes_to_exclude: list[str] | None = None,
 ) -> None:
     if not input_path.exists():
         print(f"⚠️ Skipping {input_path.name} (not found)")
@@ -88,13 +133,26 @@ def quantize_file_q4_weight_only(
         model = onnx.shape_inference.infer_shapes(model)
         onnx.save(model, str(temp_path))
 
-        quantizer = MatMulNBitsQuantizer(
-            model=str(temp_path),
-            bits=4,
-            block_size=block_size,
-            quant_format=QuantFormat.QOperator,
-            op_types_to_quantize=op_types,
-        )
+        kwargs = {
+            "model": str(temp_path),
+            "bits": 4,
+            "block_size": block_size,
+            "quant_format": QuantFormat.QOperator,
+            "op_types_to_quantize": op_types,
+        }
+
+        if nodes_to_quantize:
+            kwargs["nodes_to_quantize"] = nodes_to_quantize
+        if nodes_to_exclude:
+            kwargs["nodes_to_exclude"] = nodes_to_exclude
+
+        try:
+            quantizer = MatMulNBitsQuantizer(**kwargs)
+        except TypeError:
+            kwargs.pop("nodes_to_quantize", None)
+            kwargs.pop("nodes_to_exclude", None)
+            print("  ⚠️ MatMulNBitsQuantizer node include/exclude filters unsupported in this ORT build; using op-type-only q4 quantization.")
+            quantizer = MatMulNBitsQuantizer(**kwargs)
         quantizer.process()
         quantizer.model.save_model_to_file(str(output_path), use_external_data_format=False)
 
@@ -139,6 +197,30 @@ def main() -> None:
         help="Block size for q4 weight-only quantization",
     )
     parser.add_argument(
+        "--nodes-include",
+        type=str,
+        default="",
+        help="Comma-separated node names to quantize (global default for all models)",
+    )
+    parser.add_argument(
+        "--nodes-exclude",
+        type=str,
+        default="",
+        help="Comma-separated node names to keep in FP precision (global default for all models)",
+    )
+    parser.add_argument(
+        "--model-nodes-include",
+        action="append",
+        default=[],
+        help="Per-model include override in format model_name:node_a,node_b (repeatable)",
+    )
+    parser.add_argument(
+        "--model-nodes-exclude",
+        action="append",
+        default=[],
+        help="Per-model exclude override in format model_name:node_x,node_y (repeatable)",
+    )
+    parser.add_argument(
         "--external-data",
         dest="external_data",
         action="store_true",
@@ -168,6 +250,12 @@ def main() -> None:
         action="store_false",
         help="Disable ONNX Runtime graph optimization before final save",
     )
+    parser.add_argument(
+        "--optimize-stages",
+        type=str,
+        default=None,
+        help="Comma-separated optimization stages before save (supported: onnxsim,ort)",
+    )
     parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
 
@@ -180,6 +268,10 @@ def main() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     precisions = _resolve_precisions(args.precision)
+    include_default = _parse_csv_list(args.nodes_include)
+    exclude_default = _parse_csv_list(args.nodes_exclude)
+    include_overrides = _parse_model_node_filters(args.model_nodes_include)
+    exclude_overrides = _parse_model_node_filters(args.model_nodes_exclude)
 
     print(f"Starting Quantization: {input_dir} -> {output_dir}")
     print(f"Requested precisions: {', '.join(precisions)}")
@@ -187,12 +279,36 @@ def main() -> None:
 
     for model_name in MODELS_TO_QUANTIZE:
         in_file = input_dir / f"{model_name}.onnx"
+        model_include, model_exclude = _model_quant_filters(
+            model_name=model_name,
+            include_default=include_default,
+            exclude_default=exclude_default,
+            include_overrides=include_overrides,
+            exclude_overrides=exclude_overrides,
+        )
+
+        if model_include:
+            print(f"- {model_name}: include node filters = {model_include}")
+        if model_exclude:
+            print(f"- {model_name}: exclude node filters = {model_exclude}")
+
         for precision in precisions:
             out_file = output_dir / _output_filename(model_name, precision)
             if precision == "int8":
-                quantize_file_int8(in_file, out_file)
+                quantize_file_int8(
+                    in_file,
+                    out_file,
+                    nodes_to_quantize=model_include or None,
+                    nodes_to_exclude=model_exclude or None,
+                )
             elif precision == "q4":
-                quantize_file_q4_weight_only(in_file, out_file, block_size=args.q4_block_size)
+                quantize_file_q4_weight_only(
+                    in_file,
+                    out_file,
+                    block_size=args.q4_block_size,
+                    nodes_to_quantize=model_include or None,
+                    nodes_to_exclude=model_exclude or None,
+                )
 
             if out_file.exists():
                 sidecar = rewrite_model_external_data(
@@ -200,6 +316,7 @@ def main() -> None:
                     use_external_data=args.external_data,
                     suffix=args.external_data_suffix,
                     ort_optimize=args.ort_optimize,
+                    optimize_stages=args.optimize_stages,
                 )
                 if sidecar is not None:
                     print(f"  ↳ external tensor data: {sidecar.name}")

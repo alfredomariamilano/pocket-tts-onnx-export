@@ -135,6 +135,7 @@ def export_models(
     external_data: bool = True,
     external_data_suffix: str = ".onnx_data",
     ort_optimize: bool = True,
+    optimize_stages: str | None = None,
 ):
     os.makedirs(output_dir, exist_ok=True)
 
@@ -189,6 +190,7 @@ def export_models(
         use_external_data=external_data,
         suffix=external_data_suffix,
         ort_optimize=ort_optimize,
+        optimize_stages=optimize_stages,
     )
     print(f"Mimi Encoder exported to {encoder_onnx_path}")
     if encoder_sidecar is not None:
@@ -222,6 +224,7 @@ def export_models(
         use_external_data=external_data,
         suffix=external_data_suffix,
         ort_optimize=ort_optimize,
+        optimize_stages=optimize_stages,
     )
     print(f"Text Conditioner exported to {conditioner_onnx_path}")
     if conditioner_sidecar is not None:
@@ -278,6 +281,7 @@ def export_models(
         use_external_data=external_data,
         suffix=external_data_suffix,
         ort_optimize=ort_optimize,
+        optimize_stages=optimize_stages,
     )
     print(f"Mimi exported to {mimi_onnx_path}")
     if mimi_sidecar is not None:
@@ -443,6 +447,12 @@ def main():
         action="store_false",
         help="Disable ONNX Runtime graph optimization before final save",
     )
+    parser.add_argument(
+        "--optimize-stages",
+        type=str,
+        default=None,
+        help="Comma-separated optimization stages before save (supported: onnxsim,ort)",
+    )
     parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
     
@@ -452,6 +462,7 @@ def main():
         external_data=args.external_data,
         external_data_suffix=args.external_data_suffix,
         ort_optimize=args.ort_optimize,
+        optimize_stages=args.optimize_stages,
     )
     verify_export(flow, mimi, model, output_dir=args.output_dir)
 

@@ -160,6 +160,35 @@ def main():
         action="store_false",
         help="Disable ONNX Runtime graph optimization before final save",
     )
+    parser.add_argument(
+        "--optimize-stages",
+        type=str,
+        default=None,
+        help="Comma-separated optimization stages before save (supported: onnxsim,ort)",
+    )
+    parser.add_argument(
+        "--static-common-path",
+        action="store_true",
+        help="Export flow_lm_main with static shapes for sequence/text (batch=1)",
+    )
+    parser.add_argument(
+        "--static-seq-len",
+        type=int,
+        default=1,
+        help="Static sequence length when --static-common-path is enabled",
+    )
+    parser.add_argument(
+        "--static-text-len",
+        type=int,
+        default=1,
+        help="Static text embedding length when --static-common-path is enabled",
+    )
+    parser.add_argument(
+        "--state-seq-len",
+        type=int,
+        default=1000,
+        help="State/cache sequence length used to initialize exported recurrent state tensors",
+    )
     parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
 
@@ -181,8 +210,7 @@ def main():
             print(f"Warning: Failed to reload specified weights: {e}")
             
     # Init patched state
-    STATIC_SEQ_LEN = 1000
-    state = init_states(tts.flow_lm, batch_size=1, sequence_length=STATIC_SEQ_LEN)
+    state = init_states(tts.flow_lm, batch_size=1, sequence_length=args.state_seq_len)
     structure = get_state_structure(state)
     flat_state = flatten_state(state)
     
@@ -194,17 +222,23 @@ def main():
     print("\nExporting FlowLM Main Model (Backbone)...")
     main_wrapper = FlowLMMainWrapper(tts.flow_lm, structure)
     
-    # Needs to handle dynamic axes for both seq and text
-    dummy_seq = torch.randn(1, 1, tts.flow_lm.ldim)
-    dummy_text = torch.randn(1, 1, tts.flow_lm.dim)
+    seq_len = args.static_seq_len if args.static_common_path else 1
+    text_len = args.static_text_len if args.static_common_path else 1
+
+    dummy_seq = torch.randn(1, seq_len, tts.flow_lm.ldim)
+    dummy_text = torch.randn(1, text_len, tts.flow_lm.dim)
     main_args = (dummy_seq, dummy_text, flat_state)
+
+    dynamic_axes = None
+    if not args.static_common_path:
+        dynamic_axes = {"sequence": {1: "seq_len"}, "text_embeddings": {1: "text_len"}}
     
     main_out_path = os.path.join(args.output_dir, "flow_lm_main.onnx")
     torch.onnx.export(
         main_wrapper, main_args, main_out_path,
         input_names=["sequence", "text_embeddings"] + state_input_names,
         output_names=["conditioning", "eos_logit"] + state_output_names,
-        dynamic_axes={"sequence": {1: "seq_len"}, "text_embeddings": {1: "text_len"}},
+        dynamic_axes=dynamic_axes,
         opset_version=14, dynamo=False
     )
     print(f"Exported {main_out_path}")
@@ -213,6 +247,7 @@ def main():
         use_external_data=args.external_data,
         suffix=args.external_data_suffix,
         ort_optimize=args.ort_optimize,
+        optimize_stages=args.optimize_stages,
     )
     if main_sidecar is not None:
         print(f"  ↳ external tensor data: {main_sidecar}")
@@ -242,6 +277,7 @@ def main():
         use_external_data=args.external_data,
         suffix=args.external_data_suffix,
         ort_optimize=args.ort_optimize,
+        optimize_stages=args.optimize_stages,
     )
     if flow_sidecar is not None:
         print(f"  ↳ external tensor data: {flow_sidecar}")

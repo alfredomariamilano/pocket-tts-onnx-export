@@ -414,6 +414,11 @@ def run_export_scripts(
     external_data: bool = True,
     external_data_suffix: str = ".onnx_data",
     ort_optimize: bool = True,
+    flow_static_common_path: bool = False,
+    flow_static_seq_len: int = 1,
+    flow_static_text_len: int = 1,
+    flow_state_seq_len: int = 1000,
+    optimize_stages: str | None = None,
 ):
     print(f"\n--- Running Export Scripts ---")
     
@@ -443,6 +448,8 @@ def run_export_scripts(
         "--weights_path", weights_path,
         "--external-data-suffix", external_data_suffix,
     ]
+    if optimize_stages:
+        cmd1.extend(["--optimize-stages", optimize_stages])
     cmd1.append("--external-data" if external_data else "--no-external-data")
     cmd1.append("--ort-optimize" if ort_optimize else "--no-ort-optimize")
     try:
@@ -461,9 +468,16 @@ def run_export_scripts(
         "--output_dir", output_dir_str,
         "--weights_path", weights_path,
         "--external-data-suffix", external_data_suffix,
+        "--static-seq-len", str(flow_static_seq_len),
+        "--static-text-len", str(flow_static_text_len),
+        "--state-seq-len", str(flow_state_seq_len),
     ]
+    if optimize_stages:
+        cmd2.extend(["--optimize-stages", optimize_stages])
     cmd2.append("--external-data" if external_data else "--no-external-data")
     cmd2.append("--ort-optimize" if ort_optimize else "--no-ort-optimize")
+    if flow_static_common_path:
+        cmd2.append("--static-common-path")
     try:
         subprocess.run(cmd2, check=True)
         print("✅ FlowLM Export Success")
@@ -477,6 +491,7 @@ def run_quantization(
     external_data: bool = True,
     external_data_suffix: str = ".onnx_data",
     ort_optimize: bool = True,
+    optimize_stages: str | None = None,
 ):
     print(f"\n--- [Optional] Running Quantization ---")
     
@@ -498,6 +513,8 @@ def run_quantization(
         "--q4-block-size", str(q4_block_size),
         "--external-data-suffix", external_data_suffix,
     ]
+    if optimize_stages:
+        cmd.extend(["--optimize-stages", optimize_stages])
     cmd.append("--external-data" if external_data else "--no-external-data")
     cmd.append("--ort-optimize" if ort_optimize else "--no-ort-optimize")
     
@@ -614,6 +631,35 @@ if __name__ == "__main__":
         action="store_false",
         help="Disable ONNX Runtime graph optimization before final save",
     )
+    parser.add_argument(
+        "--optimize-stages",
+        type=str,
+        default=None,
+        help="Comma-separated optimization stages before save (supported: onnxsim,ort)",
+    )
+    parser.add_argument(
+        "--flow-static-common-path",
+        action="store_true",
+        help="Export flow_lm_main with static sequence/text dimensions (batch=1)",
+    )
+    parser.add_argument(
+        "--flow-static-seq-len",
+        type=int,
+        default=1,
+        help="Static sequence length for flow_lm_main export when --flow-static-common-path is enabled",
+    )
+    parser.add_argument(
+        "--flow-static-text-len",
+        type=int,
+        default=1,
+        help="Static text length for flow_lm_main export when --flow-static-common-path is enabled",
+    )
+    parser.add_argument(
+        "--flow-state-seq-len",
+        type=int,
+        default=1000,
+        help="State/cache sequence length used when exporting flow_lm_main recurrent state",
+    )
     parser.set_defaults(external_data=True, ort_optimize=True)
     args = parser.parse_args()
 
@@ -626,6 +672,11 @@ if __name__ == "__main__":
         external_data=args.external_data,
         external_data_suffix=args.external_data_suffix,
         ort_optimize=args.ort_optimize,
+        flow_static_common_path=args.flow_static_common_path,
+        flow_static_seq_len=args.flow_static_seq_len,
+        flow_static_text_len=args.flow_static_text_len,
+        flow_state_seq_len=args.flow_state_seq_len,
+        optimize_stages=args.optimize_stages,
     )
     
     if args.quantize:
@@ -635,6 +686,7 @@ if __name__ == "__main__":
             external_data=args.external_data,
             external_data_suffix=args.external_data_suffix,
             ort_optimize=args.ort_optimize,
+            optimize_stages=args.optimize_stages,
         )
 
     if args.validate:

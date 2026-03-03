@@ -1,0 +1,336 @@
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:177: UserWarning: Exporting a model while it is in training mode. Please ensure that this is intended, as it may lead to different behavior during inference. Calling model.eval() before export is recommended.
+  torch.onnx.export(
+W0303 06:18:00.168000 44552 .venv\Lib\site-packages\torch\onnx\_internal\exporter\_registration.py:110] torchvision is not installed. Skipping torchvision::nms
+W0303 06:18:00.169000 44552 .venv\Lib\site-packages\torch\onnx\_internal\exporter\_registration.py:110] torchvision is not installed. Skipping torchvision::roi_align
+W0303 06:18:00.170000 44552 .venv\Lib\site-packages\torch\onnx\_internal\exporter\_registration.py:110] torchvision is not installed. Skipping torchvision::roi_pool
+C:\Users\alfma\AppData\Roaming\uv\python\cpython-3.12.11-windows-x86_64-none\Lib\copyreg.py:99: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+  return cls.__new__(cls, *args)
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:211: UserWarning: Exporting a model while it is in training mode. Please ensure that this is intended, as it may lead to different behavior during inference. Calling model.eval() before export is recommended.
+  torch.onnx.export(
+W0303 06:18:07.492000 44552 .venv\Lib\site-packages\torch\onnx\_internal\exporter\_registration.py:110] torchvision is not installed. Skipping torchvision::nms
+W0303 06:18:07.493000 44552 .venv\Lib\site-packages\torch\onnx\_internal\exporter\_registration.py:110] torchvision is not installed. Skipping torchvision::roi_align
+W0303 06:18:07.494000 44552 .venv\Lib\site-packages\torch\onnx\_internal\exporter\_registration.py:110] torchvision is not installed. Skipping torchvision::roi_pool
+C:\Users\alfma\AppData\Roaming\uv\python\cpython-3.12.11-windows-x86_64-none\Lib\copyreg.py:99: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+  return cls.__new__(cls, *args)
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:269: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+  torch.onnx.export(
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:100: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  if PT > 0:
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\rope.py:23: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert (B, T, D) == (Bk, Tk, Dk)
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\rope.py:24: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert D > 0
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\rope.py:25: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert D % 2 == 0
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:46: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  if offset.numel() > 1 and not torch.all(offset == offset.view(-1)[0]):
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:77: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  if TP and self.pad_mode == "replicate":
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:85: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  if TP:
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_mimi_and_conditioner.py:88: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  if TP:
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\seanet.py:40: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert x.shape == v.shape, (x.shape, v.shape, x.shape)
+Loading model...
+Reloading weights from weights\tts_b6369a24.safetensors (with voice cloning)...
+Exporting Mimi Encoder...
+[torch.onnx] Obtain model graph for `MimiEncoderWrapper([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `MimiEncoderWrapper([...]` with `torch.export.export(..., strict=False)`... Ô£à
+[torch.onnx] Run decomposition...
+[torch.onnx] Run decomposition... Ô£à
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... Ô£à
+Applied 41 of general pattern rewrite rules.
+Mimi Encoder exported to hf\onnx\mimi_encoder.onnx
+  Ôå│ external tensor data: hf\onnx\mimi_encoder.onnx_data
+Exporting Text Conditioner...
+[torch.onnx] Obtain model graph for `TextConditionerWrapper([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `TextConditionerWrapper([...]` with `torch.export.export(..., strict=False)`... Ô£à
+[torch.onnx] Run decomposition...
+[torch.onnx] Run decomposition... Ô£à
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... Ô£à
+Text Conditioner exported to hf\onnx\text_conditioner.onnx
+  Ôå│ external tensor data: hf\onnx\text_conditioner.onnx_data
+Exporting Mimi...
+Mimi exported to hf\onnx\mimi_decoder.onnx
+  Ôå│ external tensor data: hf\onnx\mimi_decoder.onnx_data
+Verifying export...
+Verifying Mimi Encoder...
+Mimi Encoder output matches!
+Verifying Text Conditioner...
+Text Conditioner output matches!
+Mimi audio output matches!
+Mimi states match!
+Verification successful!
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_flow_lm.py:237: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+  torch.onnx.export(
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\rope.py:23: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert (B, T, D) == (Bk, Tk, Dk)
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\rope.py:24: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert D > 0
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\.venv\Lib\site-packages\pocket_tts\modules\rope.py:25: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  assert D % 2 == 0
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_flow_lm.py:23: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+  if offset.numel() > 1 and not torch.all(offset == offset.view(-1)[0]):
+C:\Users\alfma\development\forks\pocket-tts-onnx-export\scripts\export_flow_lm.py:267: DeprecationWarning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+  torch.onnx.export(
+Loading model...
+Reloading weights from weights\tts_b6369a24.safetensors...
+
+Exporting FlowLM Main Model (Backbone)...
+Exported hf\onnx\flow_lm_main.onnx
+  Ôå│ external tensor data: hf\onnx\flow_lm_main.onnx_data
+
+Exporting Flow Net Model...
+Exported hf\onnx\flow_lm_flow.onnx
+  Ôå│ external tensor data: hf\onnx\flow_lm_flow.onnx_data
+
+Done! 2-Model split optimization complete.
+2026-03-03 06:18:28,185 root [WARNING] - Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-03-03 06:18:28,969 root [INFO] - Quantization parameters for tensor:"/Where_output_0" not specified
+2026-03-03 06:18:28,971 root [INFO] - Quantization parameters for tensor:"/transformer/layers.0/norm1/Add_1_output_0" not specified
+2026-03-03 06:18:28,993 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.0/self_attn/in_proj/MatMul_output_0', use 1
+2026-03-03 06:18:28,994 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.0/self_attn/MatMul_1]
+2026-03-03 06:18:28,994 root [INFO] - Quantization parameters for tensor:"/transformer/layers.0/self_attn/Reshape_8_output_0" not specified
+2026-03-03 06:18:29,011 root [INFO] - Quantization parameters for tensor:"/transformer/layers.0/norm2/Add_1_output_0" not specified
+2026-03-03 06:18:29,055 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.0/linear1/MatMul_output_0', use 1
+2026-03-03 06:18:29,055 root [INFO] - Quantization parameters for tensor:"/transformer/layers.0/Mul_1_output_0" not specified
+2026-03-03 06:18:29,091 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.0/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:29,092 root [INFO] - Quantization parameters for tensor:"/transformer/layers.1/norm1/Add_1_output_0" not specified
+2026-03-03 06:18:29,112 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.1/self_attn/in_proj/MatMul_output_0', use 1
+2026-03-03 06:18:29,113 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.1/self_attn/MatMul]
+2026-03-03 06:18:29,113 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.1/self_attn/MatMul_1]
+2026-03-03 06:18:29,114 root [INFO] - Quantization parameters for tensor:"/transformer/layers.1/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:29,122 root [INFO] - Quantization parameters for tensor:"/transformer/layers.1/norm2/Add_1_output_0" not specified
+2026-03-03 06:18:29,150 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.1/linear1/MatMul_output_0', use 1
+2026-03-03 06:18:29,150 root [INFO] - Quantization parameters for tensor:"/transformer/layers.1/Mul_1_output_0" not specified
+2026-03-03 06:18:29,181 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.1/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:29,182 root [INFO] - Quantization parameters for tensor:"/transformer/layers.2/norm1/Add_1_output_0" not specified
+2026-03-03 06:18:29,202 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.2/self_attn/in_proj/MatMul_output_0', use 1
+2026-03-03 06:18:29,203 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.2/self_attn/MatMul]
+2026-03-03 06:18:29,204 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.2/self_attn/MatMul_1]
+2026-03-03 06:18:29,204 root [INFO] - Quantization parameters for tensor:"/transformer/layers.2/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:29,215 root [INFO] - Quantization parameters for tensor:"/transformer/layers.2/norm2/Add_1_output_0" not specified
+2026-03-03 06:18:29,266 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.2/linear1/MatMul_output_0', use 1
+2026-03-03 06:18:29,268 root [INFO] - Quantization parameters for tensor:"/transformer/layers.2/Mul_1_output_0" not specified
+2026-03-03 06:18:29,306 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.2/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:29,307 root [INFO] - Quantization parameters for tensor:"/transformer/layers.3/norm1/Add_1_output_0" not specified
+2026-03-03 06:18:29,329 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.3/self_attn/in_proj/MatMul_output_0', use 1
+2026-03-03 06:18:29,330 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.3/self_attn/MatMul]
+2026-03-03 06:18:29,331 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.3/self_attn/MatMul_1]
+2026-03-03 06:18:29,331 root [INFO] - Quantization parameters for tensor:"/transformer/layers.3/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:29,341 root [INFO] - Quantization parameters for tensor:"/transformer/layers.3/norm2/Add_1_output_0" not specified
+2026-03-03 06:18:29,369 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.3/linear1/MatMul_output_0', use 1
+2026-03-03 06:18:29,370 root [INFO] - Quantization parameters for tensor:"/transformer/layers.3/Mul_1_output_0" not specified
+2026-03-03 06:18:29,399 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.3/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:29,400 root [INFO] - Quantization parameters for tensor:"/transformer/layers.4/norm1/Add_1_output_0" not specified
+2026-03-03 06:18:29,419 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.4/self_attn/in_proj/MatMul_output_0', use 1
+2026-03-03 06:18:29,419 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.4/self_attn/MatMul]
+2026-03-03 06:18:29,420 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.4/self_attn/MatMul_1]
+2026-03-03 06:18:29,420 root [INFO] - Quantization parameters for tensor:"/transformer/layers.4/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:29,428 root [INFO] - Quantization parameters for tensor:"/transformer/layers.4/norm2/Add_1_output_0" not specified
+2026-03-03 06:18:29,455 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.4/linear1/MatMul_output_0', use 1
+2026-03-03 06:18:29,456 root [INFO] - Quantization parameters for tensor:"/transformer/layers.4/Mul_1_output_0" not specified
+2026-03-03 06:18:29,500 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.4/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:29,502 root [INFO] - Quantization parameters for tensor:"/transformer/layers.5/norm1/Add_1_output_0" not specified
+2026-03-03 06:18:29,531 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.5/self_attn/in_proj/MatMul_output_0', use 1
+2026-03-03 06:18:29,532 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.5/self_attn/MatMul]
+2026-03-03 06:18:29,532 root [INFO] - Ignore MatMul due to non constant B: /[/transformer/layers.5/self_attn/MatMul_1]
+2026-03-03 06:18:29,533 root [INFO] - Quantization parameters for tensor:"/transformer/layers.5/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:29,543 root [INFO] - Quantization parameters for tensor:"/transformer/layers.5/norm2/Add_1_output_0" not specified
+2026-03-03 06:18:29,575 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.5/linear1/MatMul_output_0', use 1
+2026-03-03 06:18:29,576 root [INFO] - Quantization parameters for tensor:"/transformer/layers.5/Mul_1_output_0" not specified
+2026-03-03 06:18:29,608 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/transformer/layers.5/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:29,609 root [INFO] - Quantization parameters for tensor:"conditioning" not specified
+2026-03-03 06:18:31,386 root [WARNING] - Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-03-03 06:18:31,831 root [INFO] - Quantization parameters for tensor:"c" not specified
+2026-03-03 06:18:31,835 root [INFO] - Quantization parameters for tensor:"/flow_net/time_embed.1/Concat_output_0" not specified
+2026-03-03 06:18:31,837 root [INFO] - Quantization parameters for tensor:"/flow_net/time_embed.1/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,839 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/time_embed.1/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,839 root [INFO] - Quantization parameters for tensor:"/flow_net/time_embed.0/Concat_output_0" not specified
+2026-03-03 06:18:31,840 root [INFO] - Quantization parameters for tensor:"/flow_net/time_embed.0/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,843 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/time_embed.0/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,843 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.0/adaLN_modulation/adaLN_modulation.0/Mul_output_0" not specified
+2026-03-03 06:18:31,847 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/final_layer/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,853 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.5/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,859 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.4/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,865 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.3/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,871 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.2/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,877 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.1/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,882 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.0/adaLN_modulation/adaLN_modulation.1/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,884 root [INFO] - Quantization parameters for tensor:"x" not specified
+2026-03-03 06:18:31,885 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.0/Add_2_output_0" not specified
+2026-03-03 06:18:31,888 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.0/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,890 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.0/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,891 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.1/Add_2_output_0" not specified
+2026-03-03 06:18:31,894 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.1/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,896 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.1/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,897 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.2/Add_2_output_0" not specified
+2026-03-03 06:18:31,899 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.2/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,902 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.2/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,902 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.3/Add_2_output_0" not specified
+2026-03-03 06:18:31,905 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.3/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,908 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.3/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,909 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.4/Add_2_output_0" not specified
+2026-03-03 06:18:31,912 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.4/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,915 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.4/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,916 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.5/Add_2_output_0" not specified
+2026-03-03 06:18:31,919 root [INFO] - Quantization parameters for tensor:"/flow_net/res_blocks.5/mlp/mlp.1/Mul_output_0" not specified
+2026-03-03 06:18:31,922 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/flow_net/res_blocks.5/mlp/mlp.2/Gemm_output_0_MatMul', use 1
+2026-03-03 06:18:31,923 root [INFO] - Quantization parameters for tensor:"/flow_net/final_layer/Add_2_output_0" not specified
+2026-03-03 06:18:32,991 root [WARNING] - Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-03-03 06:18:33,314 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.0/norm1/LayerNormalization_output_0" not specified
+2026-03-03 06:18:33,322 root [INFO] - Ignore MatMul due to non constant B: /[/decoder_transformer/transformer/layers.0/self_attn/MatMul]
+2026-03-03 06:18:33,323 root [INFO] - Ignore MatMul due to non constant B: /[/decoder_transformer/transformer/layers.0/self_attn/MatMul_1]
+2026-03-03 06:18:33,323 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.0/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:33,326 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.0/norm2/LayerNormalization_output_0" not specified
+2026-03-03 06:18:33,336 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.0/Mul_1_output_0" not specified
+2026-03-03 06:18:33,345 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/decoder_transformer/transformer/layers.0/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:33,346 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.1/norm1/LayerNormalization_output_0" not specified
+2026-03-03 06:18:33,354 root [INFO] - Ignore MatMul due to non constant B: /[/decoder_transformer/transformer/layers.1/self_attn/MatMul]
+2026-03-03 06:18:33,354 root [INFO] - Ignore MatMul due to non constant B: /[/decoder_transformer/transformer/layers.1/self_attn/MatMul_1]
+2026-03-03 06:18:33,355 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.1/self_attn/Reshape_9_output_0" not specified
+2026-03-03 06:18:33,358 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.1/norm2/LayerNormalization_output_0" not specified
+2026-03-03 06:18:33,368 root [INFO] - Quantization parameters for tensor:"/decoder_transformer/transformer/layers.1/Mul_1_output_0" not specified
+2026-03-03 06:18:33,377 root [INFO] - get_tensor_type returns DefaultTensorType for tensor name '/decoder_transformer/transformer/layers.1/linear2/MatMul_output_0', use 1
+2026-03-03 06:18:34,809 root [WARNING] - Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-03-03 06:18:35,161 root [INFO] - Quantization parameters for tensor:"layer_norm" not specified
+2026-03-03 06:18:35,166 root [INFO] - Ignore MatMul due to non constant B: /[node_scaled_dot_product_attention]
+2026-03-03 06:18:35,166 root [INFO] - Quantization parameters for tensor:"view_10" not specified
+2026-03-03 06:18:35,168 root [INFO] - Quantization parameters for tensor:"layer_norm_1" not specified
+2026-03-03 06:18:35,176 root [INFO] - Quantization parameters for tensor:"gelu" not specified
+2026-03-03 06:18:35,183 root [INFO] - Quantization parameters for tensor:"layer_norm_2" not specified
+2026-03-03 06:18:35,188 root [INFO] - Ignore MatMul due to non constant B: /[node_scaled_dot_product_attention_1]
+2026-03-03 06:18:35,188 root [INFO] - Quantization parameters for tensor:"view_21" not specified
+2026-03-03 06:18:35,190 root [INFO] - Quantization parameters for tensor:"layer_norm_3" not specified
+2026-03-03 06:18:35,198 root [INFO] - Quantization parameters for tensor:"gelu_1" not specified
+2026-03-03 06:18:35,968 root [WARNING] - Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+Starting Quantization: hf\onnx -> hf\onnx
+Requested precisions: int8
+Using MatMul-only quantization for broad CPU compatibility.
+Quantizing flow_lm_main.onnx -> flow_lm_main_int8.onnx (int8 dynamic)...
+  Running shape inference...
+  Ô£à Complete: 0.2MB -> 72.5MB (-33261.8% reduction)
+  Ôå│ external tensor data: flow_lm_main_int8.onnx_data
+Quantizing flow_lm_flow.onnx -> flow_lm_flow_int8.onnx (int8 dynamic)...
+  Running shape inference...
+  Ô£à Complete: 0.1MB -> 9.5MB (-18337.6% reduction)
+  Ôå│ external tensor data: flow_lm_flow_int8.onnx_data
+Quantizing mimi_decoder.onnx -> mimi_decoder_int8.onnx (int8 dynamic)...
+  Running shape inference...
+  Ô£à Complete: 0.1MB -> 21.5MB (-16448.6% reduction)
+  Ôå│ external tensor data: mimi_decoder_int8.onnx_data
+Quantizing mimi_encoder.onnx -> mimi_encoder_int8.onnx (int8 dynamic)...
+  Running shape inference...
+  Ô£à Complete: 0.0MB -> 51.3MB (-111739.8% reduction)
+  Ôå│ external tensor data: mimi_encoder_int8.onnx_data
+Quantizing text_conditioner.onnx -> text_conditioner_int8.onnx (int8 dynamic)...
+  Running shape inference...
+  Ô£à Complete: 0.0MB -> 15.6MB (-658949.2% reduction)
+  Ôå│ external tensor data: text_conditioner_int8.onnx_data
+
+Quantization routine finished.
+Ô£à ONNX/tokenizer contract validation passed
+- Report JSON: hf/onnx/validation_report.json
+- Report text: hf/onnx/validation_report.txt
+Ô£à huggingface_hub is installed.
+
+--- Downloading Weights from kyutai/pocket-tts ---
+Ô£à Using HF_TOKEN from environment/.env
+Ô£à Downloaded: weights\tts_b6369a24.safetensors
+Ô£à Downloaded: tokenizer.model
+Ô£à Exported model card: hf\README.md
+Ô£à Exported tokenizer JSON: hf\tokenizer.json
+Ô£à Tokenizer ID type validation passed (all integer IDs)
+Ô£à Exported tokenizer config: hf\tokenizer_config.json
+
+--- Running Export Scripts ---
+ÔÜá´©Å Skipping voice embedding download as requested.
+ÔÜá´©Å Skipping reference sample download as requested.
+
+[1/2] Exporting Mimi & Text Conditioner...
+Ô£à Mimi/Conditioner Export Success
+
+[2/2] Exporting FlowLM (Split Models)...
+Ô£à FlowLM Export Success
+
+--- [Optional] Running Quantization ---
+Ô£à Quantization Success! INT8 models in: C:\Users\alfma\development\forks\pocket-tts-onnx-export\hf\onnx
+
+--- Running Full Contract Validation ---
+Ô£à Full contract validation success
+
+Ô£à All Done! Artifacts are in: C:\Users\alfma\development\forks\pocket-tts-onnx-export\hf
+Files:
+ - alba.bin                       (0.5 MB)
+ - alba.json                      (0.0 MB)
+ - alba.safetensors               (0.5 MB)
+ - azelma.bin                     (0.6 MB)
+ - azelma.json                    (0.0 MB)
+ - azelma.safetensors             (0.6 MB)
+ - cosette.bin                    (0.5 MB)
+ - cosette.json                   (0.0 MB)
+ - cosette.safetensors            (0.5 MB)
+ - eponine.bin                    (0.5 MB)
+ - eponine.json                   (0.0 MB)
+ - eponine.safetensors            (0.5 MB)
+ - fantine.bin                    (0.5 MB)
+ - fantine.json                   (0.0 MB)
+ - fantine.safetensors            (0.5 MB)
+ - javert.bin                     (0.5 MB)
+ - javert.json                    (0.0 MB)
+ - javert.safetensors             (0.5 MB)
+ - jean.bin                       (0.5 MB)
+ - jean.json                      (0.0 MB)
+ - jean.safetensors               (0.5 MB)
+ - marius.bin                     (0.5 MB)
+ - marius.json                    (0.0 MB)
+ - marius.safetensors             (0.5 MB)
+ - alba.bin                       (5.9 MB)
+ - alba.json                      (0.0 MB)
+ - alba.safetensors               (5.9 MB)
+ - azelma.bin                     (7.5 MB)
+ - azelma.json                    (0.0 MB)
+ - azelma.safetensors             (7.6 MB)
+ - cosette.bin                    (5.9 MB)
+ - cosette.json                   (0.0 MB)
+ - cosette.safetensors            (5.9 MB)
+ - eponine.bin                    (6.6 MB)
+ - eponine.json                   (0.0 MB)
+ - eponine.safetensors            (6.6 MB)
+ - fantine.bin                    (6.2 MB)
+ - fantine.json                   (0.0 MB)
+ - fantine.safetensors            (6.2 MB)
+ - javert.bin                     (5.9 MB)
+ - javert.json                    (0.0 MB)
+ - javert.safetensors             (5.9 MB)
+ - jean.bin                       (5.9 MB)
+ - jean.json                      (0.0 MB)
+ - jean.safetensors               (5.9 MB)
+ - marius.bin                     (5.9 MB)
+ - marius.json                    (0.0 MB)
+ - marius.safetensors             (5.9 MB)
+ - flow_lm_flow.onnx              (0.1 MB)
+ - flow_lm_flow.onnx_data         (37.2 MB)
+ - flow_lm_flow_int8.onnx         (0.1 MB)
+ - flow_lm_flow_int8.onnx_data    (9.4 MB)
+ - flow_lm_main.onnx              (0.2 MB)
+ - flow_lm_main.onnx_data         (288.3 MB)
+ - flow_lm_main_int8.onnx         (0.3 MB)
+ - flow_lm_main_int8.onnx_data    (72.2 MB)
+ - mimi_decoder.onnx              (0.1 MB)
+ - mimi_decoder.onnx_data         (39.3 MB)
+ - mimi_decoder_int8.onnx         (0.2 MB)
+ - mimi_decoder_int8.onnx_data    (21.3 MB)
+ - mimi_encoder.onnx              (0.0 MB)
+ - mimi_encoder.onnx_data         (69.2 MB)
+ - mimi_encoder_int8.onnx         (0.0 MB)
+ - mimi_encoder_int8.onnx_data    (51.2 MB)
+ - text_conditioner.onnx          (0.0 MB)
+ - text_conditioner.onnx_data     (15.6 MB)
+ - text_conditioner_int8.onnx     (0.0 MB)
+ - text_conditioner_int8.onnx_data (15.6 MB)
+ - tokenizer.json                 (0.2 MB)
+ - tokenizer_config.json          (0.0 MB)

@@ -2,8 +2,10 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
+import onnx
 import onnxruntime as ort
 from tokenizers import Tokenizer
 from onnx_export.external_data import sidecar_path_for_model
@@ -135,6 +137,43 @@ def _build_feeds_from_metadata(session: ort.InferenceSession, overrides: dict[st
     return feeds
 
 
+def _model_metrics(
+    model_path: Path,
+    *,
+    expect_external_data: bool,
+    external_data_suffix: str,
+) -> dict[str, object]:
+    model = onnx.load(str(model_path), load_external_data=False)
+    sidecar_path = sidecar_path_for_model(model_path, suffix=external_data_suffix)
+    sidecar_size = sidecar_path.stat().st_size if expect_external_data and sidecar_path.exists() else 0
+    model_size = model_path.stat().st_size
+
+    return {
+        "node_count": int(len(model.graph.node)),
+        "initializer_count": int(len(model.graph.initializer)),
+        "onnx_bytes": int(model_size),
+        "external_data_bytes": int(sidecar_size),
+        "total_bytes": int(model_size + sidecar_size),
+    }
+
+
+def _measure_latency_ms(
+    session: ort.InferenceSession,
+    feeds: dict[str, np.ndarray],
+    *,
+    warmup_runs: int = 3,
+    timed_runs: int = 8,
+) -> float:
+    for _ in range(warmup_runs):
+        session.run(None, feeds)
+
+    start = perf_counter()
+    for _ in range(timed_runs):
+        session.run(None, feeds)
+    elapsed = perf_counter() - start
+    return float((elapsed / timed_runs) * 1000.0)
+
+
 def _run_end_to_end_chain(
     sessions: dict[str, ort.InferenceSession],
     token_tensor: np.ndarray,
@@ -205,6 +244,7 @@ def validate(
     sessions: dict[str, ort.InferenceSession] = {}
     signatures: dict[str, dict[str, list[dict[str, object]]]] = {}
     model_inference: dict[str, str] = {}
+    model_metrics: dict[str, dict[str, object]] = {}
 
     for model_name in REQUIRED_MODELS:
         model_path = onnx_dir / model_name
@@ -218,6 +258,11 @@ def validate(
         session = ort.InferenceSession(str(model_path))
         sessions[model_name] = session
         signatures[model_name] = _collect_signatures(session)
+        model_metrics[model_name] = _model_metrics(
+            model_path,
+            expect_external_data=expect_external_data,
+            external_data_suffix=external_data_suffix,
+        )
 
     _assert_text_conditioner_contract(sessions["text_conditioner.onnx"])
 
@@ -251,6 +296,15 @@ def validate(
         _run_generic_single_inference(session)
         quantized_inference[model_name] = "ok"
 
+    flow_main_feeds = _build_feeds_from_metadata(
+        sessions["flow_lm_main.onnx"],
+        overrides={
+            "sequence": np.zeros((1, 1, 32), dtype=np.float32),
+            "text_embeddings": text_conditioner_out.astype(np.float32),
+        },
+    )
+    flow_main_latency_ms = _measure_latency_ms(sessions["flow_lm_main.onnx"], flow_main_feeds)
+
     report = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "command": "python scripts/validate_onnx_contracts.py",
@@ -273,8 +327,12 @@ def validate(
         },
         "required_model_signatures": signatures,
         "required_model_inference": model_inference,
+        "required_model_metrics": model_metrics,
         "quantized_model_signatures": quantized_signatures,
         "quantized_model_inference": quantized_inference,
+        "latency_ms": {
+            "flow_lm_main_warm": flow_main_latency_ms,
+        },
         "end_to_end_sample": e2e,
     }
 
@@ -311,6 +369,20 @@ def validate(
         lines.append("- None found")
 
     lines.extend([
+        "",
+        "Model Metrics:",
+    ])
+
+    for model_name, metrics in model_metrics.items():
+        total_mb = float(metrics["total_bytes"]) / (1024 * 1024)
+        lines.append(
+            f"- {model_name}: nodes={metrics['node_count']}, initializers={metrics['initializer_count']}, total_size={total_mb:.1f} MB"
+        )
+
+    lines.extend([
+        "",
+        "Latency (ms):",
+        f"- flow_lm_main_warm: {flow_main_latency_ms:.3f}",
         "",
         "End-to-End Sample:",
         f"- Token count: {e2e['token_count']}",

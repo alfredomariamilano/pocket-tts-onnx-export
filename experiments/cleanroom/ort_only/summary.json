@@ -1,0 +1,8 @@
+{
+  "flow_main_nodes": 1004,
+  "flow_main_initializers": 191,
+  "flow_main_total_bytes": 302555484,
+  "flow_main_warm_ms": 25.744625003426336,
+  "flow_main_sidecar_bytes": 302327552,
+  "flow_main_int8_sidecar_bytes": 75733760
+}
