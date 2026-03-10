@@ -20,8 +20,6 @@ const DEFAULT_TEMPERATURE = 0.7;
 const CLONE_PROMPT_PATH = path.join(OUTPUT_DIR, "clone_prompt.wav");
 const BUILTIN_OUTPUT_PATH = path.join(OUTPUT_DIR, "node_builtin.wav");
 const CLONE_OUTPUT_PATH = path.join(OUTPUT_DIR, "node_voice_clone.wav");
-const BUILTIN_OUTPUT_F32_PATH = path.join(OUTPUT_DIR, "node_builtin_f32.wav");
-const CLONE_OUTPUT_F32_PATH = path.join(OUTPUT_DIR, "node_voice_clone_f32.wav");
 const REPORT_PATH = path.join(OUTPUT_DIR, "node_onnx_report.json");
 const DEFAULT_TEXT =
   "This is a direct quality comparison between the ONNX Node runtime and the native Python Pocket TTS runtime.";
