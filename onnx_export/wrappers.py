@@ -149,9 +149,8 @@ class MimiWrapper(nn.Module):
             else:
                 seq_len = latent.shape[1]
             
-            # Increment by the hop factor between encoder and latent frame rates.
-            increment_ratio = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
-            increment = seq_len * increment_ratio
+            # Increment by the hop factor (200Hz transformer / 12.5Hz latent = 16)
+            increment = seq_len * 16
             increment_steps(self.mimi, model_state, increment=increment)
             
             new_flat_state = flatten_state(model_state)
@@ -193,9 +192,5 @@ class TextConditionerWrapper(nn.Module):
 
     def forward(self, token_ids):
         # token_ids: [B, T] -> embeddings: [B, T, D]
-        if token_ids.dtype != torch.int64:
-            raise TypeError(
-                f"token_ids must be torch.int64, got {token_ids.dtype}"
-            )
         from pocket_tts.conditioners.base import TokenizedText
         return self.conditioner(TokenizedText(token_ids))
