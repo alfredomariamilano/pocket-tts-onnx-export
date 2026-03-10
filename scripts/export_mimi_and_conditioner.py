@@ -45,9 +45,27 @@ def patched_complete_kv(cache: torch.Tensor, offset: torch.Tensor, k: torch.Tens
     new_cache[0, :, current_offset : current_offset + k.shape[1]] = k
     new_cache[1, :, current_offset : current_offset + v.shape[1]] = v
     valid = new_cache[:, :, : current_offset + k.shape[1]]
-    return valid[0], valid[1]
+    return new_cache, valid[0], valid[1]
+
+
+def patched_append_and_get(self, k: torch.Tensor, v: torch.Tensor, state: dict | None):
+    if state is None:
+        k_attn = k.permute(0, 2, 1, 3)
+        v_attn = v.permute(0, 2, 1, 3)
+        pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
+        pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+        offset = torch.zeros(k_attn.shape[0], device=k_attn.device, dtype=torch.long)
+        return k_attn, v_attn, pos_k, offset
+    new_cache, cache_k, cache_v = patched_complete_kv(state["cache"], state["offset"], k, v)
+    state["cache"] = new_cache
+    k_attn = cache_k.permute(0, 2, 1, 3)
+    v_attn = cache_v.permute(0, 2, 1, 3)
+    pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
+    pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+    return k_attn, v_attn, pos_k, state["offset"]
 
 transformer_module.complete_kv = patched_complete_kv
+transformer_module._LinearKVCacheBackend.append_and_get = patched_append_and_get
 
 import os
 import onnxruntime as ort
@@ -115,6 +133,11 @@ StreamingConvTranspose1d.forward = patched_convtr_forward
 from onnx_export.wrappers import FlowLMWrapper, MimiWrapper, MimiEncoderWrapper, TextConditionerWrapper
 from pocket_tts.modules import conv
 import math
+
+# Mimi decoder state length is measured in 200 Hz decoder steps, not text tokens.
+# 2048 steps gives room for 128 latent frames, or about 10.24 seconds of audio.
+MIMI_STATIC_SEQ_LEN = 2048
+
 def patched_get_extra_padding(x, kernel_size, stride, padding_total=0):
     length = x.shape[-1]
     n_frames = (length - kernel_size + padding_total) / stride + 1
@@ -167,7 +190,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         input_names=["audio"],
         output_names=["latents"],
         dynamic_shapes={"audio": {2: "audio_len"}},
-        opset_version=17,
+        opset_version=18,
         dynamo=True,
         external_data=False
     )
@@ -198,10 +221,6 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
     )
     print(f"Text Conditioner exported to {conditioner_onnx_path}")
     
-    # Initialize state with static size sufficient for expected usage
-    # 1000 tokens covers ~40s audio or long text prompts
-    STATIC_SEQ_LEN = 1000
-    
     flow_lm_onnx_path = None
     
     # ---------------------------------------------------------
@@ -209,7 +228,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
     # ---------------------------------------------------------
     print("Exporting Mimi...")
     
-    mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=STATIC_SEQ_LEN)
+    mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=MIMI_STATIC_SEQ_LEN)
     mimi_structure = get_state_structure(mimi_state)
     flat_mimi_state = flatten_state(mimi_state)
     
@@ -241,7 +260,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         input_names=mimi_input_names,
         output_names=mimi_output_names,
         dynamic_axes=mimi_dynamic_axes,
-        opset_version=17,
+        opset_version=18,
         dynamo=False
     )
     print(f"Mimi exported to {mimi_onnx_path}")
@@ -324,7 +343,7 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
         # ---------------------------------------------------------
         ort_session_mimi = ort.InferenceSession(mimi_path)
         
-        mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=1000)
+        mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=MIMI_STATIC_SEQ_LEN)
         flat_mimi_state = flatten_state(mimi_state)
         
         latent = torch.randn(1, 1, tts_model.flow_lm.ldim)

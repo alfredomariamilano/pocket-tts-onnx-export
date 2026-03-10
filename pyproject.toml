@@ -9,7 +9,7 @@ dependencies = [
     "einops",
     "huggingface_hub",
     "onnx",
-    "onnxruntime",
+    "onnxruntime==1.24.3",
     "onnxscript",
     "pocket-tts[audio]",
     "pydantic",

@@ -1,0 +1,17 @@
+{
+  "name": "pocket-tts-onnx-export-benchmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compare:node": "tsx benchmarks/compare_onnx_node.ts"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "^0.1.2",
+    "onnxruntime-node": "^1.25.0-dev.20260307-d626b568e0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
+}

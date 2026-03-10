@@ -8,6 +8,9 @@ hypothesis/
 hf/
 .env
 .agents
+node_modules/
+comparison_outputs/
+benchmarks_output/
 
 # Large Weights (Download them via export.py)
 weights/

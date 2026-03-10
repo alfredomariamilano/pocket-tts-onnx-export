@@ -22,9 +22,27 @@ def patched_complete_kv(cache: torch.Tensor, offset: torch.Tensor, k: torch.Tens
     new_cache[0, :, current_offset : current_offset + k.shape[1]] = k
     new_cache[1, :, current_offset : current_offset + v.shape[1]] = v
     valid = new_cache[:, :, : current_offset + k.shape[1]]
-    return valid[0], valid[1]
+    return new_cache, valid[0], valid[1]
+
+
+def patched_append_and_get(self, k: torch.Tensor, v: torch.Tensor, state: dict | None):
+    if state is None:
+        k_attn = k.permute(0, 2, 1, 3)
+        v_attn = v.permute(0, 2, 1, 3)
+        pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
+        pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+        offset = torch.zeros(k_attn.shape[0], device=k_attn.device, dtype=torch.long)
+        return k_attn, v_attn, pos_k, offset
+    new_cache, cache_k, cache_v = patched_complete_kv(state["cache"], state["offset"], k, v)
+    state["cache"] = new_cache
+    k_attn = cache_k.permute(0, 2, 1, 3)
+    v_attn = cache_v.permute(0, 2, 1, 3)
+    pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
+    pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+    return k_attn, v_attn, pos_k, state["offset"]
 
 transformer_module.complete_kv = patched_complete_kv
+transformer_module._LinearKVCacheBackend.append_and_get = patched_append_and_get
 
 # ==============================================================================
 # 2. WRAPPERS
@@ -163,12 +181,21 @@ def main():
     main_args = (dummy_seq, dummy_text, flat_state)
     
     main_out_path = os.path.join(args.output_dir, "flow_lm_main.onnx")
+    main_dynamic_axes = {
+        "sequence": {1: "seq_len"},
+        "text_embeddings": {1: "text_len"},
+    }
+    for index, tensor in enumerate(flat_state):
+        if tensor.ndim == 5:
+            main_dynamic_axes[f"state_{index}"] = {2: f"cache_len_{index}"}
+            main_dynamic_axes[f"out_state_{index}"] = {2: f"cache_len_out_{index}"}
+
     torch.onnx.export(
         main_wrapper, main_args, main_out_path,
         input_names=["sequence", "text_embeddings"] + state_input_names,
         output_names=["conditioning", "eos_logit"] + state_output_names,
-        dynamic_axes={"sequence": {1: "seq_len"}, "text_embeddings": {1: "text_len"}},
-        opset_version=14, dynamo=False
+        dynamic_axes=main_dynamic_axes,
+        opset_version=18, dynamo=False
     )
     print(f"Exported {main_out_path}")
     
@@ -189,7 +216,7 @@ def main():
         input_names=["c", "s", "t", "x"],
         output_names=["flow_dir"],
         dynamic_axes={"c": {0: "batch"}, "s": {0: "batch"}, "t": {0: "batch"}, "x": {0: "batch"}},
-        opset_version=14, dynamo=False
+        opset_version=18, dynamo=False
     )
     print(f"Exported {flow_out_path}")
     print("\nDone! 2-Model split optimization complete.")

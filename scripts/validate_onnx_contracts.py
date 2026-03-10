@@ -1,11 +1,16 @@
 import argparse
+import copy
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
+import torch
 from tokenizers import Tokenizer
+
+from pocket_tts.default_parameters import DEFAULT_VARIANT
+from pocket_tts.models.tts_model import TTSModel, prepare_text_prompt
 
 
 REQUIRED_MODELS = [
@@ -97,8 +102,27 @@ def _run_text_conditioner(session: ort.InferenceSession, token_tensor: np.ndarra
 
 def _run_generic_single_inference(session: ort.InferenceSession) -> None:
     feeds: dict[str, np.ndarray] = {}
-    for input_info in session.get_inputs():
-        feeds[input_info.name] = _build_dummy_input(input_info)
+    if any(input_info.name == "sequence" for input_info in session.get_inputs()) and any(
+        input_info.name == "text_embeddings" for input_info in session.get_inputs()
+    ):
+        for input_info in session.get_inputs():
+            if input_info.name == "sequence":
+                feeds[input_info.name] = np.zeros((1, 1, 32), dtype=np.float32)
+            elif input_info.name == "text_embeddings":
+                feeds[input_info.name] = np.zeros((1, 1, 1024), dtype=np.float32)
+            elif input_info.name.startswith("state_"):
+                shape = _resolved_shape(list(input_info.shape))
+                dtype = ORT_TYPE_TO_NP[input_info.type]
+                if len(shape) == 5:
+                    cache_len = max(shape[2], 2)
+                    feeds[input_info.name] = np.zeros((shape[0], shape[1], cache_len, shape[3], shape[4]), dtype=dtype)
+                else:
+                    feeds[input_info.name] = np.zeros(shape, dtype=dtype)
+            else:
+                feeds[input_info.name] = _build_dummy_input(input_info)
+    else:
+        for input_info in session.get_inputs():
+            feeds[input_info.name] = _build_dummy_input(input_info)
     session.run(None, feeds)
 
 
@@ -124,6 +148,17 @@ def _run_end_to_end_chain(sessions: dict[str, ort.InferenceSession], token_tenso
             "text_embeddings": text_embeddings,
         },
     )
+    required_cache_len = int(text_embeddings.shape[1]) + 1
+    for input_info in flow_main.get_inputs():
+        if not input_info.name.startswith("state_"):
+            continue
+        shape = _resolved_shape(list(input_info.shape))
+        dtype = ORT_TYPE_TO_NP[input_info.type]
+        if len(shape) == 5:
+            flow_main_feeds[input_info.name] = np.zeros(
+                (shape[0], shape[1], max(shape[2], required_cache_len), shape[3], shape[4]),
+                dtype=dtype,
+            )
     flow_main_outputs = flow_main.run(None, flow_main_feeds)
     conditioning = flow_main_outputs[0].astype(np.float32)
 
@@ -153,12 +188,96 @@ def _run_end_to_end_chain(sessions: dict[str, ort.InferenceSession], token_tenso
     }
 
 
+def _run_flow_lm_prompt_parity_check(
+    tokenizer_json_path: Path,
+    onnx_dir: Path,
+    sample_text: str,
+    builtin_voice: str,
+) -> dict[str, object]:
+    hf_dir = onnx_dir.parent
+    voice_path = hf_dir / "embeddings_v2" / f"{builtin_voice}.safetensors"
+    if not voice_path.exists():
+        raise FileNotFoundError(f"Built-in embeddings_v2 voice not found: {voice_path}")
+
+    tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
+    prepared_text, _ = prepare_text_prompt(sample_text)
+    encoding = tokenizer.encode(prepared_text, add_special_tokens=False)
+    token_ids_np = np.asarray([encoding.ids], dtype=np.int64)
+    token_ids_torch = torch.tensor(token_ids_np, dtype=torch.int64)
+
+    model = TTSModel.load_model(DEFAULT_VARIANT).cpu().eval()
+    voice_state = model.get_state_for_audio_prompt(voice_path)
+    current_end = model._flow_lm_current_end(voice_state)
+    max_gen_len = model._estimate_max_gen_len(token_ids_torch.shape[1])
+    required_len = current_end + token_ids_torch.shape[1] + max_gen_len
+
+    text_session = ort.InferenceSession(str(onnx_dir / "text_conditioner.onnx"))
+    flow_main_session = ort.InferenceSession(str(onnx_dir / "flow_lm_main.onnx"))
+    text_embeddings = text_session.run(None, {"token_ids": token_ids_np})[0].astype(np.float32)
+
+    onnx_state = copy.deepcopy(voice_state)
+    model._expand_kv_cache(onnx_state, required_len)
+    feeds = {
+        "sequence": np.empty((1, 0, model.flow_lm.ldim), dtype=np.float32),
+        "text_embeddings": text_embeddings,
+    }
+    state_names = [input_info.name for input_info in flow_main_session.get_inputs() if input_info.name.startswith("state_")]
+    for index, state_name in enumerate(state_names):
+        layer = index // 2
+        kind = "cache" if index % 2 == 0 else "offset"
+        tensor = onnx_state[f"transformer.layers.{layer}.self_attn"][kind]
+        feeds[state_name] = tensor.detach().cpu().numpy()
+    onnx_outputs = flow_main_session.run(None, feeds)
+
+    python_state = copy.deepcopy(voice_state)
+    model._expand_kv_cache(python_state, required_len)
+    with torch.no_grad():
+        model._run_flow_lm_and_increment_step(python_state, text_tokens=token_ids_torch)
+
+    layer_metrics: list[dict[str, object]] = []
+    max_cache_diff = 0.0
+    for layer in range(6):
+        python_cache = python_state[f"transformer.layers.{layer}.self_attn"]["cache"].detach().cpu().numpy()
+        python_offset = int(python_state[f"transformer.layers.{layer}.self_attn"]["offset"].reshape(-1)[0].item())
+        onnx_cache = onnx_outputs[2 + layer * 2]
+        onnx_offset = int(np.asarray(onnx_outputs[3 + layer * 2]).reshape(-1)[0])
+        used_python = python_cache[:, :, :python_offset]
+        used_onnx = onnx_cache[:, :, :python_offset]
+        diff = np.abs(np.nan_to_num(used_python, nan=0.0) - np.nan_to_num(used_onnx, nan=0.0))
+        cache_max_diff = float(diff.max()) if diff.size else 0.0
+        max_cache_diff = max(max_cache_diff, cache_max_diff)
+        layer_metrics.append(
+            {
+                "layer": layer,
+                "python_offset": python_offset,
+                "onnx_offset": onnx_offset,
+                "cache_mae": float(diff.mean()) if diff.size else 0.0,
+                "cache_max": cache_max_diff,
+            }
+        )
+        if python_offset != onnx_offset:
+            raise AssertionError(
+                f"flow_lm_main prompt-state offset mismatch at layer {layer}: python={python_offset} onnx={onnx_offset}"
+            )
+
+    if max_cache_diff > 1e-3:
+        raise AssertionError(f"flow_lm_main prompt-state cache mismatch exceeds tolerance: max_diff={max_cache_diff}")
+
+    return {
+        "builtin_voice": builtin_voice,
+        "required_cache_length": required_len,
+        "max_cache_diff": max_cache_diff,
+        "layers": layer_metrics,
+    }
+
+
 def validate(
     tokenizer_json_path: Path,
     onnx_dir: Path,
     report_json_path: Path,
     report_text_path: Path,
     sample_text: str,
+    builtin_voice: str,
 ) -> dict[str, object]:
     if not tokenizer_json_path.exists():
         raise FileNotFoundError(f"Tokenizer JSON not found: {tokenizer_json_path}")
@@ -189,6 +308,12 @@ def validate(
         model_inference[model_name] = "ok"
 
     e2e = _run_end_to_end_chain(sessions, token_tensor)
+    flow_lm_prompt_parity = _run_flow_lm_prompt_parity_check(
+        tokenizer_json_path=tokenizer_json_path,
+        onnx_dir=onnx_dir,
+        sample_text=sample_text,
+        builtin_voice=builtin_voice,
+    )
 
     quantized_models = sorted({*[path.name for path in onnx_dir.glob("*_int8.onnx")], *[path.name for path in onnx_dir.glob("*_q4.onnx")]})
     quantized_signatures: dict[str, dict[str, list[dict[str, object]]]] = {}
@@ -220,6 +345,7 @@ def validate(
         "quantized_model_signatures": quantized_signatures,
         "quantized_model_inference": quantized_inference,
         "end_to_end_sample": e2e,
+        "flow_lm_prompt_parity": flow_lm_prompt_parity,
     }
 
     report_json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -256,6 +382,11 @@ def validate(
         f"- Latent step shape: {e2e['latent_step_shape']}",
         f"- Audio frame shape: {e2e['audio_frame_shape']}",
         "",
+        "FlowLM Prompt Parity:",
+        f"- Built-in voice: {flow_lm_prompt_parity['builtin_voice']}",
+        f"- Required cache length: {flow_lm_prompt_parity['required_cache_length']}",
+        f"- Max cache diff: {flow_lm_prompt_parity['max_cache_diff']}",
+        "",
         f"JSON signature report: {report_json_path}",
     ])
 
@@ -271,6 +402,7 @@ def main() -> int:
     parser.add_argument("--report-json", default="hf/onnx/validation_report.json", help="Path for JSON report output")
     parser.add_argument("--report-text", default="hf/onnx/validation_report.txt", help="Path for text report output")
     parser.add_argument("--sample-text", default="Pocket TTS should accept int64 token ids in ONNX runtime.", help="Sample sentence for tokenizer and conditioner validation")
+    parser.add_argument("--builtin-voice", default="marius", help="Built-in voice from hf/embeddings_v2/ used for FlowLM prompt-state parity checks")
     args = parser.parse_args()
 
     validate(
@@ -279,6 +411,7 @@ def main() -> int:
         report_json_path=Path(args.report_json),
         report_text_path=Path(args.report_text),
         sample_text=args.sample_text,
+        builtin_voice=args.builtin_voice,
     )
     print("ONNX and tokenizer contract validation passed")
     print(f"- Report JSON: {args.report_json}")
