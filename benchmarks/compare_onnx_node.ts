@@ -18,9 +18,6 @@ const DEFAULT_BUILTIN_VOICE = "marius";
 const DEFAULT_FLOW_STEPS = 10;
 const DEFAULT_TEMPERATURE = 0.7;
 const CLONE_PROMPT_PATH = path.join(OUTPUT_DIR, "clone_prompt.wav");
-const BUILTIN_OUTPUT_PATH = path.join(OUTPUT_DIR, "node_builtin.wav");
-const CLONE_OUTPUT_PATH = path.join(OUTPUT_DIR, "node_voice_clone.wav");
-const REPORT_PATH = path.join(OUTPUT_DIR, "node_onnx_report.json");
 const DEFAULT_TEXT =
   "This is a direct quality comparison between the ONNX Node runtime and the native Python Pocket TTS runtime.";
 const DEBUG_COMPARE = process.env.DEBUG_COMPARE === "1";
@@ -104,6 +101,27 @@ type WavData = {
 
 const modelStats: Record<string, ModelStats> = {};
 
+function parseArgValue(name: string): string | undefined {
+  const arg = process.argv.find((candidate) => candidate.startsWith(`${name}=`));
+  if (!arg) {
+    return undefined;
+  }
+  return arg.slice(name.length + 1);
+}
+
+function normalizeTag(tag: string): string {
+  return tag.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function outputPaths(tag: string): { builtin: string; clone: string; report: string } {
+  const suffix = tag.length === 0 ? "" : `_${tag}`;
+  return {
+    builtin: path.join(OUTPUT_DIR, `node_builtin${suffix}.wav`),
+    clone: path.join(OUTPUT_DIR, `node_voice_clone${suffix}.wav`),
+    report: path.join(OUTPUT_DIR, `node_onnx_report${suffix}.json`),
+  };
+}
+
 function ensureDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -115,8 +133,8 @@ function suffixForPrecision(precision: Precision): string {
   return `_${precision}.onnx`;
 }
 
-function modelPath(baseName: string, precision: Precision): string {
-  return path.join(ONNX_DIR, `${baseName}${suffixForPrecision(precision)}`);
+function modelPath(baseName: string, precision: Precision, onnxDir: string = ONNX_DIR): string {
+  return path.join(onnxDir, `${baseName}${suffixForPrecision(precision)}`);
 }
 
 async function mountSession(modelName: string, filePath: string): Promise<ort.InferenceSession> {
@@ -992,6 +1010,10 @@ async function main(): Promise<void> {
   const comparisonText = process.argv.find((arg) => arg.startsWith("--text="))?.split("=")[1] ?? DEFAULT_TEXT;
   const flowSteps = Number.parseInt(process.argv.find((arg) => arg.startsWith("--flow-steps="))?.split("=")[1] ?? `${DEFAULT_FLOW_STEPS}`, 10);
   const temperature = Number.parseFloat(process.argv.find((arg) => arg.startsWith("--temperature="))?.split("=")[1] ?? `${DEFAULT_TEMPERATURE}`);
+  const onnxDir = path.resolve(parseArgValue("--onnx-dir") ?? ONNX_DIR);
+  const outputTag = normalizeTag(parseArgValue("--tag") ?? "");
+  const builtinConditioningMode = parseArgValue("--builtin-conditioning-mode") ?? "state";
+  const paths = outputPaths(outputTag);
 
   if (!Number.isFinite(flowSteps) || flowSteps < 1) {
     throw new Error(`Invalid --flow-steps value: ${flowSteps}`);
@@ -1007,20 +1029,43 @@ async function main(): Promise<void> {
   const tokenizerJson = readJson<object>(path.join(HF_DIR, "tokenizer.json"));
   const tokenizerConfig = readJson<object>(path.join(HF_DIR, "tokenizer_config.json"));
   const tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
-  const textConditioner = await mountSession("text_conditioner", modelPath("text_conditioner", precisionArg));
-  const flowMain = await mountSession("flow_lm_main", modelPath("flow_lm_main", precisionArg));
-  const flowNet = await mountSession("flow_lm_flow", modelPath("flow_lm_flow", precisionArg));
-  const mimiDecoder = await mountSession("mimi_decoder", modelPath("mimi_decoder", precisionArg));
-  const mimiEncoder = await mountSession("mimi_encoder", modelPath("mimi_encoder", precisionArg));
+  const textConditioner = await mountSession("text_conditioner", modelPath("text_conditioner", precisionArg, onnxDir));
+  const flowMain = await mountSession("flow_lm_main", modelPath("flow_lm_main", precisionArg, onnxDir));
+  const flowNet = await mountSession("flow_lm_flow", modelPath("flow_lm_flow", precisionArg, onnxDir));
+  const mimiDecoder = await mountSession("mimi_decoder", modelPath("mimi_decoder", precisionArg, onnxDir));
+  const mimiEncoder = await mountSession("mimi_encoder", modelPath("mimi_encoder", precisionArg, onnxDir));
 
-  const builtinStateJson = path.join(HF_DIR, "embeddings_v2", `${builtinVoice}.json`);
-  if (!fs.existsSync(builtinStateJson)) {
-    throw new Error(`Missing v2 built-in voice state for ${builtinVoice}: ${builtinStateJson}`);
-  }
-  const builtinConditioning: ScenarioConditioning = {
-    kind: "flow_state",
-    value: { kind: "serialized", jsonPath: builtinStateJson },
-  };
+  const builtinConditioning: ScenarioConditioning = await (async () => {
+    if (builtinConditioningMode === "audio_embedding_runtime_v2") {
+      const builtinEmbeddingBase = path.join(HF_DIR, "embeddings", builtinVoice);
+      if (!fs.existsSync(`${builtinEmbeddingBase}.json`)) {
+        throw new Error(`Missing built-in voice embedding for ${builtinVoice}: ${builtinEmbeddingBase}.json`);
+      }
+      const builtinAudioConditioning = loadAudioConditioning(builtinEmbeddingBase);
+      const builtinTokenIds = tokenizer.encode(comparisonText, { add_special_tokens: false }).ids;
+      const builtinDecoderMaxLatents = Math.floor(metadataShape(mimiDecoder, "state_19")[2] / MIMI_STEPS_PER_LATENT);
+      const builtinMaxGenLen = Math.min(estimateMaxGenLen(builtinTokenIds.length), builtinDecoderMaxLatents);
+      const builtinFlowState = await buildFlowStateFromAudioConditioning(
+        flowMain,
+        builtinAudioConditioning,
+        builtinTokenIds.length,
+        builtinMaxGenLen,
+      );
+      return {
+        kind: "flow_state",
+        value: { kind: "runtime", bundle: buildVoiceStateBundleFromState(builtinFlowState) },
+      };
+    }
+
+    const builtinStateJson = path.join(HF_DIR, "embeddings_v2", `${builtinVoice}.json`);
+    if (!fs.existsSync(builtinStateJson)) {
+      throw new Error(`Missing v2 built-in voice state for ${builtinVoice}: ${builtinStateJson}`);
+    }
+    return {
+      kind: "flow_state",
+      value: { kind: "serialized", jsonPath: builtinStateJson },
+    };
+  })();
 
   const builtinScenario = await runScenario(
     "node_builtin",
@@ -1031,7 +1076,7 @@ async function main(): Promise<void> {
     tokenizer,
     comparisonText,
     builtinConditioning,
-    BUILTIN_OUTPUT_PATH,
+    paths.builtin,
     flowSteps,
     temperature,
   );
@@ -1060,7 +1105,7 @@ async function main(): Promise<void> {
     tokenizer,
     comparisonText,
     cloneConditioning,
-    CLONE_OUTPUT_PATH,
+    paths.clone,
     flowSteps,
     temperature,
   );
@@ -1069,7 +1114,7 @@ async function main(): Promise<void> {
     precision: precisionArg,
     flowSteps,
     temperature,
-    builtinConditioningMode: "state",
+    builtinConditioningMode,
     builtinVoice,
     comparisonText,
     clonePromptPath: CLONE_PROMPT_PATH,
@@ -1080,8 +1125,8 @@ async function main(): Promise<void> {
     },
   };
 
-  fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2) + "\n", "utf-8");
-  console.log(`Wrote ${REPORT_PATH}`);
+  fs.writeFileSync(paths.report, JSON.stringify(report, null, 2) + "\n", "utf-8");
+  console.log(`Wrote ${paths.report}`);
 }
 
 main().catch((error) => {
