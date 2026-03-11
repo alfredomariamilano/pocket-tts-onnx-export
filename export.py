@@ -272,6 +272,17 @@ def export_tokenizer_json() -> None:
     tokenizer = SentencePieceUnigramTokenizer.from_spm(str(tokenizer_model_path))
     tokenizer.normalizer = None
     tokenizer.save(str(tokenizer_json_path))
+    # ensure compact JSON output for the tokenizer definition
+    try:
+        data = json.loads(tokenizer_json_path.read_text(encoding="utf-8"))
+        # no trailing newline; JSON parsers don't require it
+        tokenizer_json_path.write_text(
+            json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except Exception:  # keep original if parsing fails
+        pass
+
     print(f"Exported tokenizer JSON: {tokenizer_json_path}")
 
     hf_tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
