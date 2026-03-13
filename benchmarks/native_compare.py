@@ -19,11 +19,23 @@ SPEAKER_PROJ_JSON_PATH = OUTPUT_DIR / "speaker_proj_weight.json"
 BUILTIN_OUTPUT_PATH = OUTPUT_DIR / "python_builtin.wav"
 CLONE_OUTPUT_PATH = OUTPUT_DIR / "python_voice_clone.wav"
 REPORT_PATH = OUTPUT_DIR / "python_native_report.json"
-DEFAULT_BUILTIN_VOICE = "marius"
-CLONE_PROMPT_VOICE = "alba"
-CLONE_PROMPT_TEXT = "This short clip becomes the voice cloning reference for the runtime comparison."
-DEFAULT_TEXT = (
-    "This is a direct quality comparison between the ONNX Node runtime and the native Python Pocket TTS runtime."
+
+# Shared defaults (kept in benchmarks/values.json so Python and Node use identical values)
+VALUES_PATH = ROOT / "benchmarks" / "values.json"
+try:
+    _VALUES = json.loads(VALUES_PATH.read_text())
+except Exception:
+    _VALUES = {}
+
+DEFAULT_BUILTIN_VOICE = _VALUES.get("defaultBuiltinVoice", "marius")
+CLONE_PROMPT_VOICE = _VALUES.get("clonePromptVoice", "alba")
+CLONE_PROMPT_TEXT = _VALUES.get(
+    "clonePromptText",
+    "This short clip becomes the voice cloning reference for the runtime comparison.",
+)
+DEFAULT_TEXT = _VALUES.get(
+    "defaultText",
+    "This is a direct quality comparison between the ONNX Node runtime and the native Python Pocket TTS runtime.",
 )
 
 

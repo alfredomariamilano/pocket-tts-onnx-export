@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-
+import values from './values.json' with { type: "json" };
 import * as ort from "onnxruntime-node";
 import { Tokenizer } from "@huggingface/tokenizers";
 
@@ -9,19 +9,23 @@ const ROOT = process.cwd();
 const HF_DIR = path.join(ROOT, "hf");
 const ONNX_DIR = path.join(HF_DIR, "onnx");
 const OUTPUT_DIR = path.join(ROOT, "comparison_outputs");
-const SAMPLE_RATE = 24_000;
-const LATENT_DIM = 32;
-const AUDIO_CONDITIONING_DIM = 1024;
-const TEXT_DIM = 1024;
-const DEFAULT_PRECISION = "fp32";
-const DEFAULT_BUILTIN_VOICE = "marius";
-const DEFAULT_FLOW_STEPS = 10;
-const DEFAULT_TEMPERATURE = 0.7;
+
+const VALUES = {...values}
+
+const SAMPLE_RATE = VALUES.sampleRate ?? 24000;
+const LATENT_DIM = VALUES.latentDim ?? 32;
+const AUDIO_CONDITIONING_DIM = VALUES.audioConditioningDim ?? 1024;
+const TEXT_DIM = VALUES.textDim ?? 1024;
+const DEFAULT_PRECISION = VALUES.defaultPrecision ?? "fp32";
+const DEFAULT_BUILTIN_VOICE = VALUES.defaultBuiltinVoice ?? "marius";
+const DEFAULT_FLOW_STEPS = VALUES.defaultFlowSteps ?? 10;
+const DEFAULT_TEMPERATURE = VALUES.defaultTemperature ?? 0.7;
 const CLONE_PROMPT_PATH = path.join(OUTPUT_DIR, "clone_prompt.wav");
 const DEFAULT_TEXT =
+  VALUES.defaultText ??
   "This is a direct quality comparison between the ONNX Node runtime and the native Python Pocket TTS runtime.";
 const DEBUG_COMPARE = process.env.DEBUG_COMPARE === "1";
-const MIMI_STEPS_PER_LATENT = 16;
+const MIMI_STEPS_PER_LATENT = VALUES.mimiStepsPerLatent ?? 16;
 type Precision = "fp32" | "int8" | "q4";
 type TensorData = Float32Array | BigInt64Array | Uint8Array;
 
