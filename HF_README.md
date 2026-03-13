@@ -24,7 +24,7 @@ ONNX export artifacts for Pocket TTS.
 - onnx/text_conditioner.onnx
 - optional *_int8.onnx quantized variants
 - optional *_q4.onnx quantized variants
-- embeddings/ and embeddings_v2/ voice-cloning safetensors mirrored from upstream. Each safetensors file is also converted to a plain `.bin` payload plus a small JSON manifest describing shape and dtype.
+- embeddings/, embeddings_v2/, and embeddings_v3/ voice-cloning safetensors mirrored from upstream. Each safetensors file is also converted to a plain `.bin` payload plus a small JSON manifest describing shape and dtype.
 - reference_sample.wav as an optional default voice prompt
 
 ## Tokenizer Export

@@ -20,7 +20,7 @@ class DummyApi:
         return list(self._files)
 
 
-@pytest.mark.parametrize("prefix", ["embeddings/", "embeddings_v2/"])
+@pytest.mark.parametrize("prefix", ["embeddings/", "embeddings_v2/", "embeddings_v3/"])
 def test_download_voice_embeddings(tmp_path, monkeypatch, capsys, prefix):
     repo_id = "kyutai/pocket-tts"
     fake_files = [f"{prefix}foo.safetensors", "other/file.txt"]

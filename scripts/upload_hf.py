@@ -60,7 +60,7 @@ ONNX export artifacts for Pocket TTS.
 - onnx/text_conditioner.onnx
 - optional *_int8.onnx quantized variants
 - optional *_q4.onnx quantized variants
-- embeddings/ and embeddings_v2/ voice-cloning assets
+- embeddings/, embeddings_v2/, and embeddings_v3/ voice-cloning assets
 - reference_sample.wav
 """
 
@@ -108,7 +108,7 @@ def main() -> None:
             return False
         if rel.match("onnx/validation_report.*"):
             return False
-        if rel.parts and rel.parts[0] in ("embeddings", "embeddings_v2") and rel.suffix == ".safetensors":
+        if rel.parts and rel.parts[0] in ("embeddings", "embeddings_v2", "embeddings_v3") and rel.suffix == ".safetensors":
             return False
         return True
 

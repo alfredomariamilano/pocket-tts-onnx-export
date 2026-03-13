@@ -47,7 +47,7 @@ The pipeline generates 5 ONNX models plus tokenizer artifacts under `hf/`:
 | `hf/onnx/mimi_decoder.onnx` | Latents to audio | Streaming neural codec decoder. |
 | `hf/tokenizer.json` | HF-compatible tokenizer JSON | Compatible with JS runtimes and `@huggingface/tokenizers`. |
 | `hf/tokenizer_config.json` | Tokenizer runtime metadata | Defines model family and special token defaults. |
-| `hf/embeddings/`, `hf/embeddings_v2/` | Voice-cloning assets | Safetensors are mirrored and converted to `.bin` plus `.json` sidecars. |
+| `hf/embeddings/`, `hf/embeddings_v2/`, `hf/embeddings_v3/` | Voice-cloning assets | Safetensors are mirrored and converted to `.bin` plus `.json` sidecars. |
 
 ## Runtime Contract
 

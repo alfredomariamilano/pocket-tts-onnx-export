@@ -224,7 +224,7 @@ def download_voice_embeddings(repo_id: str, output_dir: Path, token: str | None)
     from huggingface_hub import HfApi
 
     api = HfApi(token=token) if token else HfApi()
-    prefixes = ["embeddings/", "embeddings_v2/"]
+    prefixes = ["embeddings/", "embeddings_v2/", "embeddings_v3/"]
 
     try:
         all_files = api.list_repo_files(repo_id=repo_id)
@@ -398,7 +398,7 @@ def print_summary() -> None:
         path = OUTPUT_DIR / filename
         if path.exists():
             output_files.append(path)
-    for subdir_name in ("embeddings", "embeddings_v2"):
+    for subdir_name in ("embeddings", "embeddings_v2", "embeddings_v3"):
         subdir = OUTPUT_DIR / subdir_name
         if subdir.exists():
             output_files.extend(sorted(path for path in subdir.iterdir() if path.is_file()))

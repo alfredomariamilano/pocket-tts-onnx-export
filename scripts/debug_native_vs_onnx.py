@@ -61,7 +61,9 @@ def main() -> int:
     tokenizer = Tokenizer.from_file(args.tokenizer)
     model = TTSModel.load_model(DEFAULT_VARIANT, temp=0.0, lsd_decode_steps=1).cpu().eval()
 
-    builtin_voice = Path("hf/embeddings_v2") / f"{args.voice}.safetensors"
+    builtin_voice = Path("hf/embeddings_v3") / f"{args.voice}.safetensors"
+    if not builtin_voice.exists():
+        builtin_voice = Path("hf/embeddings_v2") / f"{args.voice}.safetensors"
     native_flow_state = model.get_state_for_audio_prompt(builtin_voice)
     native_flow_state = copy.deepcopy(native_flow_state)
     onnx_flow_state = copy.deepcopy(native_flow_state)

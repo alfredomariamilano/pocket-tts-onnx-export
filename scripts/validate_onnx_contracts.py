@@ -195,9 +195,11 @@ def _run_flow_lm_prompt_parity_check(
     builtin_voice: str,
 ) -> dict[str, object]:
     hf_dir = onnx_dir.parent
-    voice_path = hf_dir / "embeddings_v2" / f"{builtin_voice}.safetensors"
+    voice_path = hf_dir / "embeddings_v3" / f"{builtin_voice}.safetensors"
     if not voice_path.exists():
-        raise FileNotFoundError(f"Built-in embeddings_v2 voice not found: {voice_path}")
+        voice_path = hf_dir / "embeddings_v2" / f"{builtin_voice}.safetensors"
+    if not voice_path.exists():
+        raise FileNotFoundError(f"Built-in voice not found in embeddings_v3 or embeddings_v2: {builtin_voice}")
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
     prepared_text, _ = prepare_text_prompt(sample_text)
@@ -402,7 +404,11 @@ def main() -> int:
     parser.add_argument("--report-json", default="hf/onnx/validation_report.json", help="Path for JSON report output")
     parser.add_argument("--report-text", default="hf/onnx/validation_report.txt", help="Path for text report output")
     parser.add_argument("--sample-text", default="Pocket TTS should accept int64 token ids in ONNX runtime.", help="Sample sentence for tokenizer and conditioner validation")
-    parser.add_argument("--builtin-voice", default="marius", help="Built-in voice from hf/embeddings_v2/ used for FlowLM prompt-state parity checks")
+    parser.add_argument(
+        "--builtin-voice",
+        default="marius",
+        help="Built-in voice from hf/embeddings_v3/ (fallback to embeddings_v2/) used for FlowLM prompt-state parity checks",
+    )
     args = parser.parse_args()
 
     validate(
