@@ -8,7 +8,7 @@ This repository is based on the original implementation at https://github.com/Ke
 
 1.  **Clone and initialize submodules**:
     ```bash
-    git clone https://github.com/KevinAHM/pocket-tts-onnx-export.git
+    git clone https://github.com/alfredomariamilano/pocket-tts-onnx-export.git
     git submodule update --init --recursive
     ```
 

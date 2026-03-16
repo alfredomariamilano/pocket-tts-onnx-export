@@ -322,9 +322,16 @@ def export_hf_readme(template_path: Path = HF_README_TEMPLATE) -> None:
         return
 
     readme_path = OUTPUT_DIR / "README.md"
+    onnx_readme_path = ONNX_DIR / "README.md"
+
     OUTPUT_DIR.mkdir(exist_ok=True)
     shutil.copyfile(template_path, readme_path)
     print(f"Exported model card: {readme_path}")
+
+    # Keep the ONNX subfolder README in sync when exporting.
+    ONNX_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(template_path, onnx_readme_path)
+    print(f"Exported ONNX README: {onnx_readme_path}")
 
 
 def download_reference_sample(repo_id: str, output_dir: Path, token: str | None) -> None:

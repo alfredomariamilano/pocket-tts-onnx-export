@@ -22,7 +22,7 @@ This repository is based on the original implementation at https://github.com/Ke
 When cloning, be sure to pull submodules as well:
 
 ```bash
-git clone https://github.com/KevinAHM/pocket-tts-onnx-export.git
+git clone https://github.com/alfredomariamilano/pocket-tts-onnx-export.git
 git submodule update --init --recursive
 ```
 

@@ -65,9 +65,22 @@ ONNX export artifacts for Pocket TTS.
 """
 
 
+def _read_local_hf_readme() -> str | None:
+    template_path = Path("HF_README.md")
+    if template_path.exists():
+        return template_path.read_text(encoding="utf-8")
+    return None
+
+
 def ensure_readme(repo_id: str, readme_path: Path) -> None:
     readme_path.parent.mkdir(parents=True, exist_ok=True)
-    readme_path.write_text(build_readme(repo_id), encoding="utf-8")
+    content = _read_local_hf_readme() or build_readme(repo_id)
+    readme_path.write_text(content, encoding="utf-8")
+
+    # Keep the onnx directory README in sync when uploading
+    onnx_readme = readme_path.parent / "onnx" / "README.md"
+    onnx_readme.parent.mkdir(parents=True, exist_ok=True)
+    onnx_readme.write_text(content, encoding="utf-8")
 
 
 def main() -> None:
