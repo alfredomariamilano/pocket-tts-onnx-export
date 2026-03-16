@@ -1061,9 +1061,9 @@ async function main(): Promise<void> {
       };
     }
 
-    const builtinStateJson = path.join(HF_DIR, "embeddings_v2", `${builtinVoice}.json`);
+    const builtinStateJson = path.join(HF_DIR, "embeddings_v3", `${builtinVoice}.json`);
     if (!fs.existsSync(builtinStateJson)) {
-      throw new Error(`Missing v2 built-in voice state for ${builtinVoice}: ${builtinStateJson}`);
+      throw new Error(`Missing v3 built-in voice state for ${builtinVoice}: ${builtinStateJson}`);
     }
     return {
       kind: "flow_state",
