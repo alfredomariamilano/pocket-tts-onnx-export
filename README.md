@@ -1,99 +1,57 @@
 # PocketTTS ONNX Export
 
-This package provides a robust pipeline to export PocketTTS models to ONNX, optimized for streaming inference on diverse runtimes.
+This package provides a robust pipeline to export **PocketTTS** models to ONNX (FP32 and INT8), optimized for streaming inference on diverse runtimes (Web, Edge, CPU).
 
 ## Usage
 
-1. Install dependencies:
-   ```bash
-   git submodule update --init --recursive
-   uv sync
-   ```
+1.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-2. Run export:
-   ```bash
-   # Exports FP32 models to ./hf/onnx and downloads voice embeddings
-   uv run python export.py
+2.  **Run Export**:
+    ```bash
+    # Exports FP32 models to ./onnx
+    python export.py
 
-   # Exports FP32 + INT8 models
-   uv run python export.py --quantize
-
-   # Exports FP32 + q4 weight-only MatMul models
-   uv run python export.py --quantize --quantize-precision q4
-
-   # Exports FP32 + INT8 + q4 models
-   uv run python export.py --quantize --quantize-precision all
-
-   # Skip downloading voice embeddings and reference sample
-   uv run python export.py --skip-embeddings
-
-   # Export, quantize, and validate the runtime contract
-   uv run python export.py --quantize --validate
-
-   # Validate tokenizer and ONNX runtime contracts directly
-   uv run python scripts/validate_onnx_contracts.py
-   ```
+    # Exports FP32 AND INT8 models (recommended)
+    python export.py --quantize
+    ```
 
 ## Output Artifacts
 
-The pipeline generates 5 ONNX models plus tokenizer artifacts under `hf/`:
+The pipeline generates **5 distinct ONNX models** in the `onnx/` directory:
 
-| Artifact | Description | Reasoning |
+| Model | Description | Reasoning |
 | :--- | :--- | :--- |
-| `hf/onnx/text_conditioner.onnx` | Token IDs to embeddings | Lightweight text processing only. |
-| `hf/onnx/mimi_encoder.onnx` | Audio to latents | Used for voice cloning reference encoding. |
-| `hf/onnx/flow_lm_main.onnx` | Transformer backbone | Stateful autoregressive step with KV-cache updates. |
-| `hf/onnx/flow_lm_flow.onnx` | Flow matching net | Stateless ODE step. |
-| `hf/onnx/mimi_decoder.onnx` | Latents to audio | Streaming neural codec decoder. |
-| `hf/tokenizer.json` | HF-compatible tokenizer JSON | Compatible with JS runtimes and `@huggingface/tokenizers`. |
-| `hf/tokenizer_config.json` | Tokenizer runtime metadata | Defines model family and special token defaults. |
-| `hf/embeddings/`, `hf/embeddings_v2/`, `hf/embeddings_v3/` | Voice-cloning assets | Safetensors are mirrored and converted to `.bin` plus `.json` sidecars. |
-
-## Runtime Contract
-
-- Canonical tokenizer files are `hf/tokenizer.json` and `hf/tokenizer_config.json`.
-- `text_conditioner.onnx` input contract:
-  - name: `token_ids`
-  - dtype: `tensor(int64)`
-  - shape: `[1, seq_len]`
-- Runtime tokenization must use `add_special_tokens=False` and pass IDs as int64.
-- Export fails if `weights/tokenizer.model` is missing so tokenizer artifacts stay canonical.
+| **`text_conditioner.onnx`** | Tokenizer → Embeddings | Lightweight text processing only. |
+| **`mimi_encoder.onnx`** | Audio → Latents | Used for voice cloning (reference audio encoding). |
+| **`flow_lm_main.onnx`** | Transformer Backbone | **Stateful AR**. Updates KV-cache and steps. Returns conditioning vector. |
+| **`flow_lm_flow.onnx`** | Flow Matching Net | **Stateless**. Solves the ODE step ($v = f(x, t, c)$). |
+| **`mimi_decoder.onnx`** | Latents → Audio | Streaming neural codec decoder. |
 
 ## Technical Implementation
 
 ### 1. Split-Architecture for FlowLM
-Unlike the unified PyTorch model, we split the flow transformer into `main` and `flow`.
-
-Why: the flow matching process runs an ODE solver loop multiple times. Exporting the loop as a fixed graph makes it too deterministic and prevents runtime noise injection.
-
-Result: the runtime controls the loop so it can inject temperature noise and vary decode steps without re-exporting.
+Unlike the unified PyTorch model, we split the **Flow Transformer** into two parts (`main` and `flow`):
+*   **Why?** The Flow Matching process involves a loop (ODE solver) that runs multiple times (e.g., 10 steps). Exporting this as a fixed graph forces extreme determinism, preventing noise injection.
+*   **Result**: By splitting `main` (backbone) and `flow` (solver step), we move the control loop to the **Runtime (Python/JS)**. This allows us to:
+    1.  **Inject Temperature**: Add noise at each solver step, which is **critical** for breaking deterministic loops and ensuring the model correctly fires the **EOS (End of Sentence)** token.
+    2.  **Adjust Quality**: Change the number of LSD steps dynamically without re-exporting.
 
 ### 2. Monkeypatching for Export
-The original PyTorch code uses stateful modules such as `StreamingMultiheadAttention` that manage buffers internally. ONNX requires explicit state passing from inputs to outputs.
-
-Strategy: monkeypatch the relevant modules during export so caches and counters are exposed as distinct graph inputs and outputs.
+The original PyTorch code uses stateful modules (e.g., `StreamingMultiheadAttention`) that manage their own buffers. ONNX requires explicit state passing (Inputs $\rightarrow$ Outputs).
+*   **Strategy**: We "monkeypatch" these classes during export to expose their internal caches (KV-cache, counters) as distinct **Input/Output** graph nodes. This makes the models purely functional and side-effect free, which is essential for `onnxruntime`.
 
 ### 3. Safe Quantization
-The exporter supports two MatMul-only quantization modes for compatibility:
-
-- Dynamic INT8 via ONNX Runtime.
-- Q4 weight-only MatMul quantization via `MatMulNBitsQuantizer`.
-
-### 4. Tokenizer Export Parity
-Tokenizer export is generated from `weights/tokenizer.model` using SentencePiece Unigram and written to `hf/tokenizer.json`.
-
-Validation command:
-
-```bash
-uv run python scripts/tokenizer_parity.py
-```
+We use **Dynamic Quantization** targeting `MatMul` (Matrix Multiplication) operators only.
+*   **Why?** This ensures broad compatibility (e.g., older CPUs, WebAssembly) and avoids issues with specific operators (like `ConvInteger`) that can be problematic or slow on certain execution providers. It reduces model size by ~70% with negligible quality loss.
 
 ## Credits & License
 
-This project includes code from [PocketTTS](https://github.com/kyutai-labs/pocket-tts) by Kyutai Labs.
+This project includes code from **[PocketTTS](https://github.com/kyutai-labs/pocket-tts)** by **Kyutai Labs**.
 
-- Original code license: MIT
-- Modifications: this exporter applies ONNX export wrappers and patches around upstream PocketTTS and splits the architecture for improved runtime control.
+*   **Original Code License**: MIT
+*   **Modifications**: This exporter package modifies the original source to support ONNX tracing (via monkeypatching and wrappers) and splits the architecture for improved runtime control.
 
-Upstream PocketTTS is included as a pinned git submodule under `third_party/pocket-tts`.
-
+Code from the `pocket_tts` module is redistributed here under the terms of the MIT License.
