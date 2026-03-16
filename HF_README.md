@@ -17,6 +17,15 @@ tags:
 
 ONNX export of [Pocket TTS](https://huggingface.co/kyutai/pocket-tts) for lightweight text-to-speech with zero-shot voice cloning.
 
+This repository is based on the original implementation at https://github.com/KevinAHM/pocket-tts-onnx-export.
+
+When cloning, be sure to pull submodules as well:
+
+```bash
+git clone https://github.com/KevinAHM/pocket-tts-onnx-export.git
+git submodule update --init --recursive
+```
+
 ## Model Description
 
 Pocket TTS is a compact text-to-speech model from Kyutai that supports voice cloning from short audio samples. This ONNX export provides:
@@ -119,7 +128,7 @@ for chunk in tts.stream("Hello world!", voice="reference_sample.wav"):
 ### Command Line
 
 ```bash
-python generate.py "Hello, this is a test." reference_sample.wav output.wav
+uv generate.py "Hello, this is a test." reference_sample.wav output.wav
 ```
 
 ## Files
@@ -139,7 +148,6 @@ pocket-tts-onnx/
 ├── tokenizer.model                # SentencePiece tokenizer
 ├── pocket_tts_onnx.py             # Inference wrapper
 ├── generate.py                    # CLI script
-├── requirements.txt               # Python dependencies
 └── README.md
 ```
 
@@ -155,7 +163,7 @@ scipy  # Only needed if resampling from non-24kHz audio
 
 Install with:
 ```bash
-pip install -r requirements.txt
+uv install
 ```
 
 ## License
@@ -170,3 +178,4 @@ Use of our model must comply with all applicable laws and regulations and must n
 ## Acknowledgments
 
 - [Kyutai](https://kyutai.org/) for the original Pocket TTS model
+- [ottomate](https://ottomate.io): a PC command center that automates complex workflows using custom mobile HUDs, local voice commands, and global macros. Built for privacy and performance, it uses local AI to execute "deterministic" sequences, like launching a full streaming setup or in-game actions, instantly and without cloud latency.

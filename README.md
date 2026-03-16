@@ -2,20 +2,28 @@
 
 This package provides a robust pipeline to export **PocketTTS** models to ONNX (FP32 and INT8), optimized for streaming inference on diverse runtimes (Web, Edge, CPU).
 
+This repository is based on the original implementation at https://github.com/KevinAHM/pocket-tts-onnx-export.
+
 ## Usage
 
-1.  **Install Dependencies**:
+1.  **Clone and initialize submodules**:
     ```bash
-    pip install -r requirements.txt
+    git clone https://github.com/KevinAHM/pocket-tts-onnx-export.git
+    git submodule update --init --recursive
     ```
 
-2.  **Run Export**:
+2.  **Install Dependencies**:
+    ```bash
+    uv install
+    ```
+
+3.  **Run Export**:
     ```bash
     # Exports FP32 models to ./onnx
-    python export.py
+    uv export.py
 
     # Exports FP32 AND INT8 models (recommended)
-    python export.py --quantize
+    uv export.py --quantize
     ```
 
 ## Output Artifacts
@@ -55,3 +63,7 @@ This project includes code from **[PocketTTS](https://github.com/kyutai-labs/poc
 *   **Modifications**: This exporter package modifies the original source to support ONNX tracing (via monkeypatching and wrappers) and splits the architecture for improved runtime control.
 
 Code from the `pocket_tts` module is redistributed here under the terms of the MIT License.
+
+## Related Projects
+
+- **ottomate**: a PC command center that automates complex workflows using custom mobile HUDs, local voice commands, and global macros. Built for privacy and performance, it uses local AI to execute "deterministic" sequences, like launching a full streaming setup or in-game actions, instantly and without cloud latency.
