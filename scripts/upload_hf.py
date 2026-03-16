@@ -77,11 +77,6 @@ def ensure_readme(repo_id: str, readme_path: Path) -> None:
     content = _read_local_hf_readme() or build_readme(repo_id)
     readme_path.write_text(content, encoding="utf-8")
 
-    # Keep the onnx directory README in sync when uploading
-    onnx_readme = readme_path.parent / "onnx" / "README.md"
-    onnx_readme.parent.mkdir(parents=True, exist_ok=True)
-    onnx_readme.write_text(content, encoding="utf-8")
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Upload local hf artifacts to Hugging Face Hub.")
