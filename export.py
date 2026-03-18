@@ -336,6 +336,57 @@ def download_reference_sample(repo_id: str, output_dir: Path, token: str | None)
         print("reference_sample.wav not available")
 
 
+def clone_audio_prompts_to_embeddings(output_dir: Path) -> None:
+    """Clone local audio prompt files into HF embeddings_v3 as safetensors.
+
+    This allows local voice prompts under ./audio_prompts to be treated like the
+    built-in voice cloning assets in `hf/embeddings_v3/`.
+    """
+
+    prompt_dir = Path("audio_prompts")
+    if not prompt_dir.exists() or not prompt_dir.is_dir():
+        return
+
+    audio_files = sorted(
+        [
+            p
+            for p in prompt_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".safetensors")
+        ]
+    )
+    if not audio_files:
+        return
+
+    try:
+        from pocket_tts import TTSModel, export_model_state
+    except Exception as exc:
+        print(f"Skipping audio prompt cloning: failed to import pocket_tts ({exc})")
+        return
+
+    try:
+        model = TTSModel.load_model()
+    except Exception as exc:
+        print(f"Skipping audio prompt cloning: failed to load pocket-tts model ({exc})")
+        return
+
+    dest_dir = output_dir / "embeddings_v3"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    for audio_file in audio_files:
+        dest_safetensors = dest_dir / f"{audio_file.stem}.safetensors"
+        try:
+            if audio_file.suffix.lower() == ".safetensors":
+                shutil.copyfile(audio_file, dest_safetensors)
+                print(f"Copied existing safetensors prompt: {audio_file.name}")
+            else:
+                voice_state = model.get_state_for_audio_prompt(str(audio_file))
+                export_model_state(voice_state, str(dest_safetensors))
+                print(f"Exported audio prompt state: {dest_safetensors}")
+            _convert_safetensor_to_raw(dest_safetensors)
+        except Exception as exc:
+            print(f"Failed to clone audio prompt {audio_file.name}: {exc}")
+
+
 def run_export_scripts(skip_embeddings: bool = False) -> None:
     print("\n--- Running export scripts ---")
     ONNX_DIR.mkdir(parents=True, exist_ok=True)
@@ -346,6 +397,8 @@ def run_export_scripts(skip_embeddings: bool = False) -> None:
         download_reference_sample(REPO_ID, OUTPUT_DIR, token)
     else:
         print("Skipping voice embeddings and reference sample download")
+
+    clone_audio_prompts_to_embeddings(OUTPUT_DIR)
 
     weights_path = str(WEIGHTS_DIR / WEIGHTS_FILENAME)
     output_dir_str = str(ONNX_DIR)

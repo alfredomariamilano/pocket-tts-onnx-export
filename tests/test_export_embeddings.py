@@ -53,3 +53,49 @@ def test_download_voice_embeddings(tmp_path, monkeypatch, capsys, prefix):
     assert stem.with_suffix(".safetensors").exists()
     assert stem.with_suffix(".bin").exists()
     assert stem.with_suffix(".json").exists()
+
+
+def test_clone_audio_prompts_to_embeddings(tmp_path, monkeypatch):
+    # Create a dummy audio prompt file
+    audio_dir = tmp_path / "audio_prompts"
+    audio_dir.mkdir(parents=True)
+    prompt_path = audio_dir / "announcer.wav"
+    prompt_path.write_bytes(b"RIFF\x00\x00\x00\x00")
+
+    # Prepare temp output destination
+    out_dir = tmp_path / "hf"
+
+    # Insert a dummy pocket_tts module to avoid loading the real model
+    import types
+
+    dummy_module = types.ModuleType("pocket_tts")
+
+    class DummyModel:
+        def get_state_for_audio_prompt(self, _):
+            import numpy as np
+
+            return {"transformer.layers.0.self_attn/cache": np.zeros((1,), dtype=np.float32)}
+
+    class DummyTTSModel:
+        @staticmethod
+        def load_model(*args, **kwargs):
+            return DummyModel()
+
+    def dummy_export_model_state(state, dest):
+        import safetensors.numpy
+
+        safetensors.numpy.save_file(state, dest)
+
+    dummy_module.TTSModel = DummyTTSModel
+    dummy_module.export_model_state = dummy_export_model_state
+
+    monkeypatch.setitem(sys.modules, "pocket_tts", dummy_module)
+
+    # Run cloning
+    exporter.clone_audio_prompts_to_embeddings(out_dir)
+
+    # Expect safetensors + raw artifacts in embeddings_v3
+    safetensors_path = out_dir / "embeddings_v3" / "announcer.safetensors"
+    assert safetensors_path.exists()
+    assert safetensors_path.with_suffix(".bin").exists()
+    assert safetensors_path.with_suffix(".json").exists()

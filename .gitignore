@@ -18,6 +18,7 @@ weights/
 # Exported Models
 onnx/
 onnx_models/
+audio_prompts/
 
 # Generated Audio
 *.wav
