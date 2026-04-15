@@ -7,7 +7,7 @@
   "defaultBuiltinVoice": "stuart_bell",
   "defaultFlowSteps": 10,
   "defaultTemperature": 0.7,
-  "defaultText": "Let's do this!",
+  "defaultText": "How much wood would a woodchuck chuck, if a woodchuck could chuck wood?",
   "mimiStepsPerLatent": 16,
   "clonePromptVoice": "alba",
   "clonePromptText": "This short clip becomes the voice cloning reference for the runtime comparison."

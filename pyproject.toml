@@ -18,7 +18,8 @@ dependencies = [
     "scipy",
     "sentencepiece",
     "soundfile",
-    "torch",
+    "tokenizers>=0.22.2",
+    "torch>=2.5.0,<2.6.0",
     "transformers",
 ]
 
