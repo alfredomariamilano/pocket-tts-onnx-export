@@ -83,6 +83,16 @@ StreamingMultiheadAttention._complete_kv = patched_sma_complete_kv
 # Note: forward and _get_mask NOT monkeypatched here - Mimi encoder uses dynamo=True
 # and the original StreamingMultiheadAttention.forward handles stateless encoding correctly.
 
+# Fix beartype type-check on _LinearKVCacheBackend.rope_offset during TorchScript tracing:
+# batch_size becomes a traced Tensor (not int), violating the type hint.
+from pocket_tts.modules.transformer import _LinearKVCacheBackend
+_orig_rope_offset = _LinearKVCacheBackend.rope_offset
+def _patched_rope_offset(self, state, batch_size, device):
+    if isinstance(batch_size, torch.Tensor):
+        batch_size = int(batch_size)
+    return _orig_rope_offset(self, state, batch_size, device)
+_LinearKVCacheBackend.rope_offset = _patched_rope_offset
+
 import os
 from pathlib import Path
 import onnxruntime as ort
