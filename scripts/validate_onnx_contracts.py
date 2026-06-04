@@ -9,7 +9,7 @@ import onnxruntime as ort
 import torch
 from tokenizers import Tokenizer
 
-from pocket_tts.default_parameters import DEFAULT_VARIANT
+from pocket_tts.default_parameters import DEFAULT_LANGUAGE
 from pocket_tts.models.tts_model import TTSModel, prepare_text_prompt
 
 
@@ -207,7 +207,7 @@ def _run_flow_lm_prompt_parity_check(
     token_ids_np = np.asarray([encoding.ids], dtype=np.int64)
     token_ids_torch = torch.tensor(token_ids_np, dtype=torch.int64)
 
-    model = TTSModel.load_model(DEFAULT_VARIANT).cpu().eval()
+    model = TTSModel.load_model(language=DEFAULT_LANGUAGE).cpu().eval()
     voice_state = model.get_state_for_audio_prompt(voice_path)
     current_end = model._flow_lm_current_end(voice_state)
     max_gen_len = model._estimate_max_gen_len(token_ids_torch.shape[1])

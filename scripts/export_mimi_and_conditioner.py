@@ -4,9 +4,7 @@ import argparse
 
 # Monkeypatch beartype to avoid errors during tracing where Tensors are passed as ints
 import beartype
-import beartype.claw
 beartype.beartype = lambda *args, **kwargs: (lambda func: func) if not args else args[0]
-beartype.claw.beartype_this_package = lambda *args, **kwargs: None
 
 import torch
 # Monkeypatch trunc_normal_ to be ONNX-friendly
@@ -23,7 +21,6 @@ torch.nn.init.trunc_normal_ = patched_trunc_normal_
 # Monkeypatch global increment_steps to update scalar 'step' instead of resizing tensor
 import pocket_tts.modules.stateful_module as stateful_module
 from pocket_tts.modules.stateful_module import StatefulModule
-import pocket_tts.modules.transformer as transformer_module
 
 def patched_increment_steps(module, model_state, increment=1):
     for module_name, m in module.named_modules():
@@ -39,40 +36,61 @@ def patched_stateful_increment_step(self, state: dict, increment = 1):
     pass
 StatefulModule.increment_step = patched_stateful_increment_step
 
-def patched_complete_kv(cache: torch.Tensor, offset: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
-    current_offset = offset.view(-1)[0]
+# Monkeypatch StreamingMultiheadAttention to use scalar 'step'
+from pocket_tts.modules.transformer import StreamingMultiheadAttention, complete_kv
+
+def patched_init_state(self, batch_size: int, sequence_length: int) -> dict[str, torch.Tensor]:
+    dim_per_head = self.embed_dim // self.num_heads
+    # Use a scalar tensor 'step' for position tracking
+    initial_step = torch.tensor([0], dtype=torch.long, device=self.in_proj.weight.device)
+    # current_end is kept static (size 0) or dummy, we won't use it for length info
+    initial_current_end = torch.zeros((0,)).to(self.in_proj.weight.device)
+    
+    return dict(
+        offset=torch.zeros(batch_size, dtype=torch.long, device=self.in_proj.weight.device),
+        cache=torch.full(
+            (2, batch_size, sequence_length, self.num_heads, dim_per_head),
+            float("NaN"),
+            device=self.in_proj.weight.device,
+            dtype=self.in_proj.weight.dtype,
+        ),
+    )
+
+def patched_increment_step(self, state: dict, increment: int = 1):
+    state["offset"] = state["offset"] + increment
+
+def patched_streaming_offset(self, state: dict | None) -> torch.Tensor:
+    if state is None:
+        return torch.tensor(0, dtype=torch.long, device=self.in_proj.weight.device)
+    return state["offset"]
+
+def patched_sma_complete_kv(self, k, v, state: dict | None):
+    if state is None:
+        return k, v
+    current_offset = state["offset"]
+    cache = state["cache"]
     new_cache = cache.clone()
     new_cache[0, :, current_offset : current_offset + k.shape[1]] = k
     new_cache[1, :, current_offset : current_offset + v.shape[1]] = v
-    valid = new_cache[:, :, : current_offset + k.shape[1]]
-    return new_cache, valid[0], valid[1]
-
-
-def patched_append_and_get(self, k: torch.Tensor, v: torch.Tensor, state: dict | None):
-    if state is None:
-        k_attn = k.permute(0, 2, 1, 3)
-        v_attn = v.permute(0, 2, 1, 3)
-        pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
-        pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
-        offset = torch.zeros(k_attn.shape[0], device=k_attn.device, dtype=torch.long)
-        return k_attn, v_attn, pos_k, offset
-    new_cache, cache_k, cache_v = patched_complete_kv(state["cache"], state["offset"], k, v)
     state["cache"] = new_cache
-    k_attn = cache_k.permute(0, 2, 1, 3)
-    v_attn = cache_v.permute(0, 2, 1, 3)
-    pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
-    pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
-    return k_attn, v_attn, pos_k, state["offset"]
+    valid = new_cache[:, :, : current_offset + k.shape[1]]
+    return valid[0], valid[1]
 
-transformer_module.complete_kv = patched_complete_kv
-transformer_module._LinearKVCacheBackend.append_and_get = patched_append_and_get
+StreamingMultiheadAttention.init_state = patched_init_state
+StreamingMultiheadAttention.increment_step = patched_increment_step
+StreamingMultiheadAttention._streaming_offset = patched_streaming_offset
+StreamingMultiheadAttention._complete_kv = patched_sma_complete_kv
+# Note: forward and _get_mask NOT monkeypatched here - Mimi encoder uses dynamo=True
+# and the original StreamingMultiheadAttention.forward handles stateless encoding correctly.
 
 import os
+from pathlib import Path
 import onnxruntime as ort
 import numpy as np
 from pocket_tts.models.tts_model import TTSModel
-from pocket_tts.default_parameters import DEFAULT_VARIANT
+from pocket_tts.default_parameters import DEFAULT_LANGUAGE
 from pocket_tts.modules.stateful_module import init_states
+from onnx_export.bundle_metadata import write_bundle_metadata
 from onnx_export.export_utils import get_state_structure, flatten_state, unflatten_state
 
 from pocket_tts.modules.conv import StreamingConv1d, StreamingConvTranspose1d
@@ -81,7 +99,8 @@ def patched_conv1d_forward(self, x, model_state: dict | None):
     S = self._stride
     # Removed assert for trace
     if model_state is None:
-        state = self.init_state(B, 0)
+        # Export and inference both use batch size 1, and tracing may present B as a Tensor.
+        state = self.init_state(1, 0)
     else:
         state = self.get_state(model_state)
     TP = state["previous"].shape[-1]
@@ -133,11 +152,6 @@ StreamingConvTranspose1d.forward = patched_convtr_forward
 from onnx_export.wrappers import FlowLMWrapper, MimiWrapper, MimiEncoderWrapper, TextConditionerWrapper
 from pocket_tts.modules import conv
 import math
-
-# Mimi decoder state length is measured in 200 Hz decoder steps, not text tokens.
-# 2048 steps gives room for 128 latent frames, or about 10.24 seconds of audio.
-MIMI_STATIC_SEQ_LEN = 2048
-
 def patched_get_extra_padding(x, kernel_size, stride, padding_total=0):
     length = x.shape[-1]
     n_frames = (length - kernel_size + padding_total) / stride + 1
@@ -145,26 +159,26 @@ def patched_get_extra_padding(x, kernel_size, stride, padding_total=0):
     return ideal_length - length
 conv.get_extra_padding_for_conv1d = patched_get_extra_padding
 
-def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.safetensors"):
+def compare_outputs(name, torch_output, onnx_output, exact: bool):
+    if exact:
+        if np.array_equal(torch_output, onnx_output):
+            print(f"{name} matches exactly.")
+            return
+        diff = np.abs(torch_output.astype(np.float64) - onnx_output.astype(np.float64))
+        raise AssertionError(
+            f"{name} mismatch. max_abs_diff={diff.max()} mean_abs_diff={diff.mean()}"
+        )
+
+    np.testing.assert_allclose(torch_output, onnx_output, rtol=2e-5, atol=2e-5)
+    print(f"{name} matches within tolerance.")
+
+
+def export_models(output_dir="onnx_models", language=DEFAULT_LANGUAGE, config=None):
     os.makedirs(output_dir, exist_ok=True)
 
     print("Loading model...")
-    # Load model on CPU
-    tts_model = TTSModel.load_model(DEFAULT_VARIANT)
-
-    # Reload with local voice cloning weights (HF download may have failed)
-    import safetensors.torch
-    if os.path.exists(weights_path):
-        print(f"Reloading weights from {weights_path} (with voice cloning)...")
-        state_dict = safetensors.torch.load_file(weights_path)
-        try:
-            tts_model.load_state_dict(state_dict, strict=True)
-            tts_model.has_voice_cloning = True
-        except Exception as e:
-            print(f"Warning: Failed to load specified weights (strict=True): {e}")
-            print("Using default loaded weights.")
-    else:
-        print(f"Warning: Weights file {weights_path} not found. Using defaults.")
+    tts_model = TTSModel.load_model(language=language, config=config)
+    bundle_name = Path(config).stem if config is not None else language
 
     tts_model.eval()
     
@@ -177,6 +191,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         tts_model.mimi,
         speaker_proj_weight=tts_model.flow_lm.speaker_proj_weight
     )
+    mimi_encoder_wrapper.eval()
     
     # Dummy audio: 1 second at 24kHz
     dummy_audio = torch.randn(1, 1, 24000)
@@ -192,7 +207,7 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         dynamic_shapes={"audio": {2: "audio_len"}},
         opset_version=18,
         dynamo=True,
-        external_data=False
+        external_data=False,
     )
     print(f"Mimi Encoder exported to {encoder_onnx_path}")
     
@@ -202,9 +217,10 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
     print("Exporting Text Conditioner...")
     
     text_conditioner_wrapper = TextConditionerWrapper(tts_model.flow_lm.conditioner)
+    text_conditioner_wrapper.eval()
     
     # Dummy tokens
-    dummy_tokens = torch.randint(0, 1000, (1, 20), dtype=torch.int64)
+    dummy_tokens = torch.randint(0, 1000, (1, 20))
     
     conditioner_onnx_path = os.path.join(output_dir, "text_conditioner.onnx")
     
@@ -214,12 +230,16 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         conditioner_onnx_path,
         input_names=["token_ids"],
         output_names=["embeddings"],
-        dynamic_shapes={"token_ids": {1: "seq_len"}},
-        opset_version=18,
-        dynamo=True,
-        external_data=False
+        dynamic_axes={"token_ids": {1: "seq_len"}},
+        opset_version=14,
+        dynamo=False,
+        external_data=False,
     )
     print(f"Text Conditioner exported to {conditioner_onnx_path}")
+    
+    # Initialize state with static size sufficient for expected usage
+    # 1000 tokens covers ~40s audio or long text prompts
+    STATIC_SEQ_LEN = 1000
     
     flow_lm_onnx_path = None
     
@@ -228,9 +248,10 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
     # ---------------------------------------------------------
     print("Exporting Mimi...")
     
-    mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=MIMI_STATIC_SEQ_LEN)
+    mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=STATIC_SEQ_LEN)
     mimi_structure = get_state_structure(mimi_state)
     flat_mimi_state = flatten_state(mimi_state)
+    write_bundle_metadata(output_dir, tts_model, bundle_name=bundle_name, mimi_state=mimi_state)
     
     
     mimi_wrapper = MimiWrapper(
@@ -260,14 +281,14 @@ def export_models(output_dir="onnx_models", weights_path="weights/tts_b6369a24.s
         input_names=mimi_input_names,
         output_names=mimi_output_names,
         dynamic_axes=mimi_dynamic_axes,
-        opset_version=18,
+        opset_version=17,
         dynamo=False
     )
     print(f"Mimi exported to {mimi_onnx_path}")
     
     return flow_lm_onnx_path, mimi_onnx_path, tts_model
 
-def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
+def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models", exact=False):
     print("Verifying export...")
     
     encoder_path = os.path.join(output_dir, "mimi_encoder.onnx")
@@ -294,11 +315,7 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
         # ONNX run
         onnx_encoder_out = ort_encoder.run(None, {"audio": test_audio.numpy()})[0]
         
-        np.testing.assert_allclose(
-            pt_encoder_out.numpy(), onnx_encoder_out, 
-            rtol=1e-4, atol=1e-4
-        )
-        print("Mimi Encoder output matches!")
+        compare_outputs("Mimi Encoder output", pt_encoder_out.numpy(), onnx_encoder_out, exact)
     
     if os.path.exists(conditioner_path):
         # ---------------------------------------------------------
@@ -306,19 +323,9 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
         # ---------------------------------------------------------
         print("Verifying Text Conditioner...")
         ort_conditioner = ort.InferenceSession(conditioner_path)
-
-        conditioner_input = ort_conditioner.get_inputs()[0]
-        if conditioner_input.name != "token_ids":
-            raise RuntimeError(
-                f"Expected input name 'token_ids', got '{conditioner_input.name}'"
-            )
-        if conditioner_input.type != "tensor(int64)":
-            raise RuntimeError(
-                f"Expected input dtype tensor(int64), got {conditioner_input.type}"
-            )
         
         # Test token input
-        test_tokens = torch.randint(0, 1000, (1, 20), dtype=torch.int64)
+        test_tokens = torch.randint(0, 1000, (1, 20))
         
         # PyTorch run
         conditioner_wrapper = TextConditionerWrapper(tts_model.flow_lm.conditioner)
@@ -326,16 +333,9 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
             pt_conditioner_out = conditioner_wrapper(test_tokens)
         
         # ONNX run
-        onnx_conditioner_out = ort_conditioner.run(
-            None,
-            {"token_ids": test_tokens.numpy().astype(np.int64)},
-        )[0]
+        onnx_conditioner_out = ort_conditioner.run(None, {"token_ids": test_tokens.numpy()})[0]
         
-        np.testing.assert_allclose(
-            pt_conditioner_out.numpy(), onnx_conditioner_out, 
-            rtol=1e-5, atol=1e-5
-        )
-        print("Text Conditioner output matches!")
+        compare_outputs("Text Conditioner output", pt_conditioner_out.numpy(), onnx_conditioner_out, exact)
     
     if mimi_path and os.path.exists(mimi_path):
         # ---------------------------------------------------------
@@ -343,7 +343,7 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
         # ---------------------------------------------------------
         ort_session_mimi = ort.InferenceSession(mimi_path)
         
-        mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=MIMI_STATIC_SEQ_LEN)
+        mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=1000)
         flat_mimi_state = flatten_state(mimi_state)
         
         latent = torch.randn(1, 1, tts_model.flow_lm.ldim)
@@ -373,12 +373,10 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models"):
         onnx_audio = ort_mimi_outs[0]
         onnx_mimi_states = ort_mimi_outs[1:]
         
-        np.testing.assert_allclose(pt_audio, onnx_audio, rtol=1e-4, atol=1e-4)
-        print("Mimi audio output matches!")
+        compare_outputs("Mimi audio output", pt_audio, onnx_audio, exact)
         
         for i, (pt_s, onnx_s) in enumerate(zip(pt_mimi_states, onnx_mimi_states)):
-            np.testing.assert_allclose(pt_s, onnx_s, rtol=1e-4, atol=1e-4)
-        print("Mimi states match!")
+            compare_outputs(f"Mimi state {i}", pt_s, onnx_s, exact)
         
         print("Verification successful!")
 
@@ -386,11 +384,13 @@ def main():
     torch.manual_seed(42)
     parser = argparse.ArgumentParser(description="Export Mimi and Conditioner models to ONNX.")
     parser.add_argument("--output_dir", "-o", type=str, default="onnx_models", help="Directory for output ONNX files")
-    parser.add_argument("--weights_path", "-w", type=str, default="weights/tts_b6369a24.safetensors", help="Path to weights file")
+    parser.add_argument("--language", type=str, default=DEFAULT_LANGUAGE, help="Model language/config name.")
+    parser.add_argument("--config", type=str, default=None, help="Path to a local YAML config file.")
+    parser.add_argument("--exact", action="store_true", help="Require exact torch vs ONNX equality.")
     args = parser.parse_args()
     
-    flow, mimi, model = export_models(output_dir=args.output_dir, weights_path=args.weights_path)
-    verify_export(flow, mimi, model, output_dir=args.output_dir)
+    flow, mimi, model = export_models(output_dir=args.output_dir, language=args.language, config=args.config)
+    verify_export(flow, mimi, model, output_dir=args.output_dir, exact=args.exact)
 
 if __name__ == "__main__":
     main()

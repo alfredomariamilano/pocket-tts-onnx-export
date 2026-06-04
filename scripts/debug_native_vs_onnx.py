@@ -11,7 +11,7 @@ import torch
 from tokenizers import Tokenizer
 
 from onnx_export.export_utils import flatten_state
-from pocket_tts.default_parameters import DEFAULT_VARIANT
+from pocket_tts.default_parameters import DEFAULT_LANGUAGE
 from pocket_tts.models.tts_model import TTSModel
 from pocket_tts.modules.stateful_module import increment_steps, init_states
 
@@ -59,7 +59,7 @@ def main() -> int:
 
     onnx_dir = Path(args.onnx_dir)
     tokenizer = Tokenizer.from_file(args.tokenizer)
-    model = TTSModel.load_model(DEFAULT_VARIANT, temp=0.0, lsd_decode_steps=1).cpu().eval()
+    model = TTSModel.load_model(language=DEFAULT_LANGUAGE, temp=0.0, lsd_decode_steps=1).cpu().eval()
 
     builtin_voice = Path("hf/embeddings_v3") / f"{args.voice}.safetensors"
     if not builtin_voice.exists():

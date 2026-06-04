@@ -7,6 +7,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from pocket_tts.default_parameters import DEFAULT_LANGUAGE
+
 OUTPUT_DIR = Path("hf")
 ONNX_DIR = OUTPUT_DIR / "onnx"
 WEIGHTS_DIR = Path("weights")
@@ -387,9 +389,17 @@ def clone_audio_prompts_to_embeddings(output_dir: Path) -> None:
             print(f"Failed to clone audio prompt {audio_file.name}: {exc}")
 
 
-def run_export_scripts(skip_embeddings: bool = False) -> None:
+def _model_label(language: str | None, config: str | None) -> str:
+    if language:
+        return language
+    if config:
+        return Path(config).stem
+    return DEFAULT_LANGUAGE
+
+
+def run_export_scripts(language: str | None, config: str | None, output_dir: Path, exact: bool, skip_embeddings: bool = False) -> None:
     print("\n--- Running export scripts ---")
-    ONNX_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if not skip_embeddings:
         token = _load_hf_token()
@@ -400,15 +410,37 @@ def run_export_scripts(skip_embeddings: bool = False) -> None:
 
     clone_audio_prompts_to_embeddings(OUTPUT_DIR)
 
-    weights_path = str(WEIGHTS_DIR / WEIGHTS_FILENAME)
-    output_dir_str = str(ONNX_DIR)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = "." + os.pathsep + env.get("PYTHONPATH", "")
 
-    cmd1 = [sys.executable, "-m", "scripts.export_mimi_and_conditioner", "--output_dir", output_dir_str, "--weights_path", weights_path]
-    subprocess.run(cmd1, check=True)
+    selector_args: list[str]
+    if config is not None:
+        selector_args = ["--config", config]
+    else:
+        selector_args = ["--language", language or DEFAULT_LANGUAGE]
+
+    verify_args = ["--exact"] if exact else []
+
+    output_dir_str = str(output_dir)
+
+    cmd1 = [
+        sys.executable, "-m", "scripts.export_mimi_and_conditioner",
+        "--output_dir", output_dir_str,
+        *selector_args,
+        *verify_args,
+    ]
+    print("\n[1/2] Exporting Mimi & Text Conditioner...")
+    subprocess.run(cmd1, check=True, env=env)
     print("Mimi and conditioner export succeeded")
 
-    cmd2 = [sys.executable, "-m", "scripts.export_flow_lm", "--output_dir", output_dir_str, "--weights_path", weights_path]
-    subprocess.run(cmd2, check=True)
+    cmd2 = [
+        sys.executable, "-m", "scripts.export_flow_lm",
+        "--output_dir", output_dir_str,
+        *selector_args,
+        *verify_args,
+    ]
+    print("\n[2/2] Exporting FlowLM...")
+    subprocess.run(cmd2, check=True, env=env)
     print("FlowLM export succeeded")
 
 
@@ -465,6 +497,9 @@ def print_summary() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Unified export script for PocketTTS")
+    parser.add_argument("--language", default=DEFAULT_LANGUAGE, help="Model language/config name (e.g. english, french, german).")
+    parser.add_argument("--config", default=None, help="Path to a local YAML config file.")
+    parser.add_argument("--exact", action="store_true", help="Require exact torch vs ONNX equality during verification.")
     parser.add_argument("--quantize", action="store_true", help="Run quantization after export")
     parser.add_argument(
         "--quantize-precision",
@@ -477,11 +512,14 @@ if __name__ == "__main__":
     parser.add_argument("--skip-embeddings", action="store_true", help="Skip downloading voice embeddings and reference sample")
     args = parser.parse_args()
 
+    label = _model_label(args.language, args.config)
+    final_output_dir = ONNX_DIR.parent / label / "onnx"
+
     install_check()
     download_weights()
     export_hf_readme()
     export_tokenizer_json()
-    run_export_scripts(skip_embeddings=args.skip_embeddings)
+    run_export_scripts(language=args.language, config=args.config, output_dir=final_output_dir, exact=args.exact, skip_embeddings=args.skip_embeddings)
 
     if args.quantize:
         run_quantization(precision=args.quantize_precision, q4_block_size=args.q4_block_size)
