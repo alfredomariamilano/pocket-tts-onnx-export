@@ -444,9 +444,9 @@ def run_export_scripts(language: str | None, config: str | None, output_dir: Pat
     print("FlowLM export succeeded")
 
 
-def run_quantization(precision: str = "int8", q4_block_size: int = 128) -> None:
+def run_quantization(output_dir: Path, precision: str = "int8", q4_block_size: int = 128) -> None:
     print("\n--- Running quantization ---")
-    if not any(ONNX_DIR.glob("*.onnx")):
+    if not any(output_dir.glob("*.onnx")):
         print("No models found in output directory to quantize.")
         return
 
@@ -455,21 +455,21 @@ def run_quantization(precision: str = "int8", q4_block_size: int = 128) -> None:
         "-m",
         "scripts.quantize",
         "--input_dir",
-        str(ONNX_DIR),
+        str(output_dir),
         "--output_dir",
-        str(ONNX_DIR),
+        str(output_dir),
         "--precision",
         precision,
         "--q4-block-size",
         str(q4_block_size),
     ]
     subprocess.run(cmd, check=True)
-    print(f"Quantization succeeded in: {ONNX_DIR.absolute()}")
+    print(f"Quantization succeeded in: {output_dir.absolute()}")
 
 
-def run_full_validation() -> None:
+def run_full_validation(onnx_dir: Path) -> None:
     print("\n--- Running full contract validation ---")
-    subprocess.run([sys.executable, "-m", "scripts.validate_onnx_contracts"], check=True)
+    subprocess.run([sys.executable, "-m", "scripts.validate_onnx_contracts", "--onnx-dir", str(onnx_dir)], check=True)
     print("Full contract validation succeeded")
 
 
@@ -522,8 +522,8 @@ if __name__ == "__main__":
     run_export_scripts(language=args.language, config=args.config, output_dir=final_output_dir, exact=args.exact, skip_embeddings=args.skip_embeddings)
 
     if args.quantize:
-        run_quantization(precision=args.quantize_precision, q4_block_size=args.q4_block_size)
+        run_quantization(output_dir=final_output_dir, precision=args.quantize_precision, q4_block_size=args.q4_block_size)
     if args.validate:
-        run_full_validation()
+        run_full_validation(onnx_dir=final_output_dir)
 
     print_summary()
