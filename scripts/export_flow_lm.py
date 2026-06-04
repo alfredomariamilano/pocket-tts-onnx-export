@@ -91,6 +91,15 @@ StreamingMultiheadAttention._complete_kv = patched_sma_complete_kv
 StreamingMultiheadAttention._get_mask = patched_get_mask
 StreamingMultiheadAttention.forward = patched_sma_forward
 
+# Fix beartype type-check on rope_offset during TorchScript tracing
+from pocket_tts.modules.transformer import _LinearKVCacheBackend
+_orig_rope_offset_fl = _LinearKVCacheBackend.rope_offset
+def _patched_rope_offset_fl(self, state, batch_size, device):
+    if isinstance(batch_size, torch.Tensor):
+        batch_size = int(batch_size)
+    return _orig_rope_offset_fl(self, state, batch_size, device)
+_LinearKVCacheBackend.rope_offset = _patched_rope_offset_fl
+
 def patched_stateful_increment_step(self, state: dict, increment = 1):
     return state
 StatefulModule.increment_step = patched_stateful_increment_step
