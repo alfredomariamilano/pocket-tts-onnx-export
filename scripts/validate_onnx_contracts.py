@@ -188,26 +188,65 @@ def _run_end_to_end_chain(sessions: dict[str, ort.InferenceSession], token_tenso
     }
 
 
+def _find_builtin_voice(onnx_dir: Path, tokenizer_json_path: Path, builtin_voice: str) -> Path:
+    hf_roots: list[Path] = []
+    for candidate in (tokenizer_json_path.parent, onnx_dir.parent):
+        if candidate not in hf_roots:
+            hf_roots.append(candidate)
+    for hf_dir in hf_roots:
+        for version in ("embeddings_v3", "embeddings_v2"):
+            voice_path = hf_dir / version / f"{builtin_voice}.safetensors"
+            if voice_path.exists():
+                return voice_path
+    raise FileNotFoundError(f"Built-in voice not found in embeddings_v3 or embeddings_v2: {builtin_voice}")
+
+
+def _build_state_feeds(
+    onnx_state: dict[str, dict[str, torch.Tensor]],
+    state_names: list[str],
+    flow_main_session: ort.InferenceSession,
+) -> dict[str, np.ndarray]:
+    contract_cache_len = 0
+    for input_info in flow_main_session.get_inputs():
+        shape = _resolved_shape(list(input_info.shape))
+        if input_info.name.startswith("state_") and len(shape) == 5:
+            contract_cache_len = max(contract_cache_len, shape[2])
+    feeds: dict[str, np.ndarray] = {}
+    for index, state_name in enumerate(state_names):
+        layer = index // 2
+        kind = "cache" if index % 2 == 0 else "offset"
+        tensor = onnx_state[f"transformer.layers.{layer}.self_attn"][kind]
+        arr = tensor.detach().cpu().numpy()
+        if kind == "cache" and contract_cache_len and arr.shape[2] < contract_cache_len:
+            pad_width = contract_cache_len - arr.shape[2]
+            arr = np.pad(
+                arr,
+                ((0, 0), (0, 0), (0, pad_width), (0, 0), (0, 0)),
+                constant_values=np.nan,
+            )
+        feeds[state_name] = arr
+    return feeds
+
+
 def _run_flow_lm_prompt_parity_check(
     tokenizer_json_path: Path,
     onnx_dir: Path,
     sample_text: str,
     builtin_voice: str,
 ) -> dict[str, object]:
-    hf_dir = onnx_dir.parent
-    voice_path = hf_dir / "embeddings_v3" / f"{builtin_voice}.safetensors"
-    if not voice_path.exists():
-        voice_path = hf_dir / "embeddings_v2" / f"{builtin_voice}.safetensors"
-    if not voice_path.exists():
-        raise FileNotFoundError(f"Built-in voice not found in embeddings_v3 or embeddings_v2: {builtin_voice}")
+    voice_path = _find_builtin_voice(onnx_dir, tokenizer_json_path, builtin_voice)
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
-    prepared_text, _ = prepare_text_prompt(sample_text)
+    model = TTSModel.load_model(language=DEFAULT_LANGUAGE).cpu().eval()
+    prepared_text, _ = prepare_text_prompt(
+        sample_text,
+        model.pad_with_spaces_for_short_inputs,
+        model.remove_semicolons,
+    )
     encoding = tokenizer.encode(prepared_text, add_special_tokens=False)
     token_ids_np = np.asarray([encoding.ids], dtype=np.int64)
     token_ids_torch = torch.tensor(token_ids_np, dtype=torch.int64)
 
-    model = TTSModel.load_model(language=DEFAULT_LANGUAGE).cpu().eval()
     voice_state = model.get_state_for_audio_prompt(voice_path)
     current_end = model._flow_lm_current_end(voice_state)
     max_gen_len = model._estimate_max_gen_len(token_ids_torch.shape[1])
@@ -224,11 +263,7 @@ def _run_flow_lm_prompt_parity_check(
         "text_embeddings": text_embeddings,
     }
     state_names = [input_info.name for input_info in flow_main_session.get_inputs() if input_info.name.startswith("state_")]
-    for index, state_name in enumerate(state_names):
-        layer = index // 2
-        kind = "cache" if index % 2 == 0 else "offset"
-        tensor = onnx_state[f"transformer.layers.{layer}.self_attn"][kind]
-        feeds[state_name] = tensor.detach().cpu().numpy()
+    feeds.update(_build_state_feeds(onnx_state, state_names, flow_main_session))
     onnx_outputs = flow_main_session.run(None, feeds)
 
     python_state = copy.deepcopy(voice_state)

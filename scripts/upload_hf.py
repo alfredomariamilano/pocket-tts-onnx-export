@@ -9,6 +9,7 @@ from huggingface_hub.errors import HfHubHTTPError
 
 DEFAULT_REPO_ID = "ottomate/pocket-tts-ONNX"
 DEFAULT_FOLDER = Path("hf")
+DEFAULT_BRANCH = "main"
 
 
 def load_hf_token() -> str:
@@ -81,6 +82,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Upload local hf artifacts to Hugging Face Hub.")
     parser.add_argument("--repo-id", default=DEFAULT_REPO_ID, help="Target HF repo id (owner/name)")
     parser.add_argument("--folder", default=str(DEFAULT_FOLDER), help="Local folder to upload")
+    parser.add_argument("--branch", default=str(DEFAULT_BRANCH), help="Branch to upload to")
     parser.add_argument("--private", action="store_true", help="Create repo as private")
     parser.add_argument("--commit-message", default=None, help="Commit message for upload")
     parser.add_argument("--skip-readme", action="store_true", help="Do not rewrite hf/README.md before uploading")
@@ -124,6 +126,7 @@ def main() -> None:
     api.upload_folder(
         repo_id=args.repo_id,
         repo_type="model",
+        branch=args.branch,
         folder_path=str(folder_path),
         path_in_repo=".",
         commit_message=commit_message,
