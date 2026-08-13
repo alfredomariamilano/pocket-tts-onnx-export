@@ -63,6 +63,16 @@ def test_find_builtin_voice_missing_raises(tmp_path):
         validate._find_builtin_voice(onnx_dir, tokenizer_json, "marius")
 
 
+def test_bundle_language_nested_layout():
+    assert validate._bundle_language(Path("hf/italian/onnx")) == "italian"
+    assert validate._bundle_language(Path("hf/english_2026-04/onnx")) == "english_2026-04"
+
+
+def test_bundle_language_flat_layout_falls_back_to_default():
+    assert validate._bundle_language(Path("hf/onnx")) == validate.DEFAULT_LANGUAGE
+    assert validate._bundle_language(Path("hf")) == validate.DEFAULT_LANGUAGE
+
+
 def test_build_state_feeds_pads_cache_to_contract_length():
     session = _FakeSession(
         [

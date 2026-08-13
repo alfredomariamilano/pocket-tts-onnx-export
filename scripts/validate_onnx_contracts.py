@@ -11,6 +11,7 @@ from tokenizers import Tokenizer
 
 from pocket_tts.default_parameters import DEFAULT_LANGUAGE
 from pocket_tts.models.tts_model import TTSModel, prepare_text_prompt
+from pocket_tts.utils.config import CONFIGS_DIR
 
 
 REQUIRED_MODELS = [
@@ -201,6 +202,13 @@ def _find_builtin_voice(onnx_dir: Path, tokenizer_json_path: Path, builtin_voice
     raise FileNotFoundError(f"Built-in voice not found in embeddings_v3 or embeddings_v2: {builtin_voice}")
 
 
+def _bundle_language(onnx_dir: Path) -> str:
+    candidate = onnx_dir.parent.name
+    if (CONFIGS_DIR / f"{candidate}.yaml").exists():
+        return candidate
+    return DEFAULT_LANGUAGE
+
+
 def _build_state_feeds(
     onnx_state: dict[str, dict[str, torch.Tensor]],
     state_names: list[str],
@@ -237,7 +245,7 @@ def _run_flow_lm_prompt_parity_check(
     voice_path = _find_builtin_voice(onnx_dir, tokenizer_json_path, builtin_voice)
 
     tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
-    model = TTSModel.load_model(language=DEFAULT_LANGUAGE).cpu().eval()
+    model = TTSModel.load_model(language=_bundle_language(onnx_dir)).cpu().eval()
     prepared_text, _ = prepare_text_prompt(
         sample_text,
         model.pad_with_spaces_for_short_inputs,
