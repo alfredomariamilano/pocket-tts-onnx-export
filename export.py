@@ -444,7 +444,7 @@ def run_export_scripts(language: str | None, config: str | None, output_dir: Pat
     print("FlowLM export succeeded")
 
 
-def run_quantization(output_dir: Path, precision: str = "int8", q4_block_size: int = 128) -> None:
+def run_quantization(output_dir: Path) -> None:
     print("\n--- Running quantization ---")
     if not any(output_dir.glob("*.onnx")):
         print("No models found in output directory to quantize.")
@@ -458,10 +458,6 @@ def run_quantization(output_dir: Path, precision: str = "int8", q4_block_size: i
         str(output_dir),
         "--output_dir",
         str(output_dir),
-        "--precision",
-        precision,
-        "--q4-block-size",
-        str(q4_block_size),
     ]
     subprocess.run(cmd, check=True)
     print(f"Quantization succeeded in: {output_dir.absolute()}")
@@ -501,13 +497,6 @@ if __name__ == "__main__":
     parser.add_argument("--config", default=None, help="Path to a local YAML config file.")
     parser.add_argument("--exact", action="store_true", help="Require exact torch vs ONNX equality during verification.")
     parser.add_argument("--quantize", action="store_true", help="Run quantization after export")
-    parser.add_argument(
-        "--quantize-precision",
-        choices=["int8", "q4", "all"],
-        default="int8",
-        help="Quantization precision profile when --quantize is enabled",
-    )
-    parser.add_argument("--q4-block-size", type=int, default=128, help="Block size for q4 weight-only quantization")
     parser.add_argument("--validate", action="store_true", help="Run tokenizer and ONNX contract validation")
     parser.add_argument("--skip-embeddings", action="store_true", help="Skip downloading voice embeddings and reference sample")
     args = parser.parse_args()
@@ -522,7 +511,7 @@ if __name__ == "__main__":
     run_export_scripts(language=args.language, config=args.config, output_dir=final_output_dir, exact=args.exact, skip_embeddings=args.skip_embeddings)
 
     if args.quantize:
-        run_quantization(output_dir=final_output_dir, precision=args.quantize_precision, q4_block_size=args.q4_block_size)
+        run_quantization(output_dir=final_output_dir)
     if args.validate:
         run_full_validation(onnx_dir=final_output_dir)
 

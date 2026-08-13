@@ -59,7 +59,6 @@ ONNX export artifacts for Pocket TTS.
 - onnx/mimi_decoder.onnx
 - onnx/text_conditioner.onnx
 - optional *_int8.onnx quantized variants
-- optional *_q4.onnx quantized variants
 - embeddings/, embeddings_v2/, and embeddings_v3/ voice-cloning assets
 - reference_sample.wav
 """
