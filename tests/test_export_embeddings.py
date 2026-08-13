@@ -16,14 +16,18 @@ class DummyApi:
     def __init__(self, files):
         self._files = files
 
-    def list_repo_files(self, repo_id):
+    def list_repo_files(self, repo_id, revision=None):
         return list(self._files)
 
 
-@pytest.mark.parametrize("prefix", ["embeddings/", "embeddings_v2/", "embeddings_v3/"])
-def test_download_voice_embeddings(tmp_path, monkeypatch, capsys, prefix):
-    repo_id = "kyutai/pocket-tts"
-    fake_files = [f"{prefix}foo.safetensors", "other/file.txt"]
+@pytest.mark.parametrize("language", ["english", "italian"])
+def test_download_voice_embeddings_per_language(tmp_path, monkeypatch, capsys, language):
+    fake_files = [
+        f"languages/{language}/embeddings/foo.safetensors",
+        f"languages/{language}/embeddings/bar.safetensors",
+        "languages/french/embeddings/other.safetensors",
+        "tokenizer.model",
+    ]
 
     monkeypatch.setattr(huggingface_hub, "HfApi", lambda token=None: DummyApi(fake_files))
 
@@ -44,15 +48,52 @@ def test_download_voice_embeddings(tmp_path, monkeypatch, capsys, prefix):
     monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
 
     out_dir = tmp_path / "hf"
-    exporter.download_voice_embeddings(repo_id, out_dir, token=None)
+    exporter.download_voice_embeddings(language, out_dir, token=None)
 
     listing_output = capsys.readouterr().out
-    assert f"repository {repo_id} contains" in listing_output
+    assert f"repository {exporter.VOICE_EMBEDDINGS_REPO} contains" in listing_output
 
-    stem = out_dir / prefix / "foo"
+    stem = out_dir / language / "embeddings_v3" / "foo"
     assert stem.with_suffix(".safetensors").exists()
     assert stem.with_suffix(".bin").exists()
     assert stem.with_suffix(".json").exists()
+    assert not (out_dir / "embeddings_v3" / "foo.safetensors").exists()
+    assert not (out_dir / language / "embeddings_v3" / "other.safetensors").exists()
+
+def test_download_voice_embeddings_uses_pinned_revision(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        huggingface_hub,
+        "HfApi",
+        lambda token=None: DummyApi(["languages/english/embeddings/foo.safetensors"]),
+    )
+
+    revisions: list[str | None] = []
+
+    def fake_download(*args, **kwargs):
+        revisions.append(kwargs.get("revision"))
+        filename = kwargs["filename"]
+        cache_path = tmp_path / "cache" / filename
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        import numpy as np
+        import safetensors.numpy
+
+        arr = np.zeros((1, 2, EMBEDDING_DIM), dtype=np.float32)
+        safetensors.numpy.save_file({"audio_prompt": arr}, str(cache_path))
+        return str(cache_path)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
+
+    exporter.download_voice_embeddings("english", tmp_path / "hf", token=None)
+
+    assert revisions == [exporter.VOICE_EMBEDDINGS_REVISION]
+
+
+def test_download_voice_embeddings_missing_language(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(huggingface_hub, "HfApi", lambda token=None: DummyApi(["tokenizer.model"]))
+
+    exporter.download_voice_embeddings("klingon", tmp_path / "hf", token=None)
+
+    assert "No voice embeddings found for language 'klingon'" in capsys.readouterr().out
 
 
 def test_clone_audio_prompts_to_embeddings(tmp_path, monkeypatch):
@@ -91,11 +132,15 @@ def test_clone_audio_prompts_to_embeddings(tmp_path, monkeypatch):
 
     monkeypatch.setitem(sys.modules, "pocket_tts", dummy_module)
 
-    # Run cloning
-    exporter.clone_audio_prompts_to_embeddings(out_dir)
+    # Run cloning for a non-default language
+    exporter.clone_audio_prompts_to_embeddings(out_dir, language="italian")
 
-    # Expect safetensors + raw artifacts in embeddings_v3
-    safetensors_path = out_dir / "embeddings_v3" / "announcer.safetensors"
+    # Expect safetensors + raw artifacts in the language-scoped embeddings_v3
+    safetensors_path = out_dir / "italian" / "embeddings_v3" / "announcer.safetensors"
     assert safetensors_path.exists()
     assert safetensors_path.with_suffix(".bin").exists()
     assert safetensors_path.with_suffix(".json").exists()
+
+    # Legacy root-level clone (English model) is kept for backward compatibility
+    legacy_path = out_dir / "embeddings_v3" / "announcer.safetensors"
+    assert legacy_path.exists()

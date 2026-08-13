@@ -111,6 +111,8 @@ def main() -> None:
         if "403" not in str(exc):
             raise
 
+    api.create_branch(repo_id=args.repo_id, repo_type="model", branch=args.branch, exist_ok=True)
+
     def should_include(path: Path) -> bool:
         rel = path.relative_to(folder_path)
         if "onnx_quant" in rel.parts:
@@ -126,7 +128,7 @@ def main() -> None:
     api.upload_folder(
         repo_id=args.repo_id,
         repo_type="model",
-        branch=args.branch,
+        revision=args.branch,
         folder_path=str(folder_path),
         path_in_repo=".",
         commit_message=commit_message,

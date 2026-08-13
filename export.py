@@ -18,6 +18,8 @@ TOKENIZER_MODEL_FILENAME = "tokenizer.model"
 TOKENIZER_JSON_FILENAME = "tokenizer.json"
 TOKENIZER_CONFIG_FILENAME = "tokenizer_config.json"
 HF_README_TEMPLATE = Path("HF_README.md")
+VOICE_EMBEDDINGS_REPO = "kyutai/pocket-tts-without-voice-cloning"
+VOICE_EMBEDDINGS_REVISION = "e041936c75475d350b405bc870bcf7c22da4e9e6"
 
 
 @dataclass(frozen=True)
@@ -61,11 +63,17 @@ def install_check() -> None:
         sys.exit(1)
 
 
-def _download_hf_file(repo_id: str, filename: str, dest_dir: Path, token: str | None) -> Path | None:
+def _download_hf_file(
+    repo_id: str,
+    filename: str,
+    dest_dir: Path,
+    token: str | None,
+    revision: str | None = None,
+) -> Path | None:
     from huggingface_hub import hf_hub_download
 
     try:
-        cached = hf_hub_download(repo_id=repo_id, filename=filename, token=token)
+        cached = hf_hub_download(repo_id=repo_id, filename=filename, token=token, revision=revision)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / os.path.basename(filename)
         shutil.copyfile(cached, dest_path)
@@ -222,44 +230,48 @@ def _convert_safetensor_to_raw(src_path: Path) -> bool:
         return False
 
 
-def download_voice_embeddings(repo_id: str, output_dir: Path, token: str | None) -> None:
+def download_voice_embeddings(language: str, output_dir: Path, token: str | None = None) -> None:
     from huggingface_hub import HfApi
 
     api = HfApi(token=token) if token else HfApi()
-    prefixes = ["embeddings/", "embeddings_v2/", "embeddings_v3/"]
+    prefix = f"languages/{language}/embeddings/"
 
     try:
-        all_files = api.list_repo_files(repo_id=repo_id)
-        print(f"repository {repo_id} contains {len(all_files)} files")
+        all_files = api.list_repo_files(repo_id=VOICE_EMBEDDINGS_REPO, revision=VOICE_EMBEDDINGS_REVISION)
+        print(f"repository {VOICE_EMBEDDINGS_REPO} contains {len(all_files)} files")
     except Exception as exc:
-        print(f"Failed to list files for {repo_id}: {exc}")
+        print(f"Failed to list files for {VOICE_EMBEDDINGS_REPO}: {exc}")
         return
 
-    for prefix in prefixes:
-        matched = [path for path in all_files if path.startswith(prefix)]
-        if not matched:
-            print(f"No files found under '{prefix}'")
-            continue
+    matched = [path for path in all_files if path.startswith(prefix)]
+    if not matched:
+        print(f"No voice embeddings found for language '{language}' under '{prefix}'")
+        return
 
-        target_dir = output_dir / prefix
-        skipped: list[str] = []
-        for repo_path in matched:
-            dest = _download_hf_file(repo_id, repo_path, target_dir, token)
-            if dest:
-                print(f"Downloaded embedding: {repo_path} -> {dest}")
-                if dest.suffix == ".safetensors" and not _convert_safetensor_to_raw(dest):
-                    skipped.append(dest.name)
-        if skipped:
-            print("The following safetensors failed conversion:")
-            for name in skipped:
-                print(f"  - {name}")
+    target_dir = output_dir / language / "embeddings_v3"
+    skipped: list[str] = []
+    for repo_path in matched:
+        dest = _download_hf_file(
+            VOICE_EMBEDDINGS_REPO,
+            repo_path,
+            target_dir,
+            token,
+            revision=VOICE_EMBEDDINGS_REVISION,
+        )
+        if dest:
+            print(f"Downloaded embedding: {repo_path} -> {dest}")
+            if dest.suffix == ".safetensors" and not _convert_safetensor_to_raw(dest):
+                skipped.append(dest.name)
+    if skipped:
+        print("The following safetensors failed conversion:")
+        for name in skipped:
+            print(f"  - {name}")
 
 
-def export_tokenizer_json() -> None:
-    tokenizer_model_path = WEIGHTS_DIR / TOKENIZER_MODEL_FILENAME
-    tokenizer_json_path = OUTPUT_DIR / TOKENIZER_JSON_FILENAME
-    tokenizer_config_path = OUTPUT_DIR / TOKENIZER_CONFIG_FILENAME
-    OUTPUT_DIR.mkdir(exist_ok=True)
+def export_tokenizer_json(tokenizer_model_path: Path, output_dir: Path) -> None:
+    tokenizer_json_path = output_dir / TOKENIZER_JSON_FILENAME
+    tokenizer_config_path = output_dir / TOKENIZER_CONFIG_FILENAME
+    output_dir.mkdir(exist_ok=True)
 
     if not tokenizer_model_path.exists():
         raise FileNotFoundError(
@@ -318,6 +330,17 @@ def export_tokenizer_json() -> None:
     print(f"Exported tokenizer config: {tokenizer_config_path}")
 
 
+def export_language_tokenizer_jsons() -> None:
+    for bundle_dir in sorted(OUTPUT_DIR.iterdir()):
+        if not bundle_dir.is_dir():
+            continue
+        tokenizer_model_path = bundle_dir / "onnx" / TOKENIZER_MODEL_FILENAME
+        if not tokenizer_model_path.exists():
+            continue
+        export_tokenizer_json(tokenizer_model_path, bundle_dir)
+        print(f"Exported per-language tokenizer JSON: {bundle_dir.name}")
+
+
 def export_hf_readme(template_path: Path = HF_README_TEMPLATE) -> None:
     if not template_path.exists():
         print(f"README template not found: {template_path}. Skipping model card export.")
@@ -338,11 +361,12 @@ def download_reference_sample(repo_id: str, output_dir: Path, token: str | None)
         print("reference_sample.wav not available")
 
 
-def clone_audio_prompts_to_embeddings(output_dir: Path) -> None:
-    """Clone local audio prompt files into HF embeddings_v3 as safetensors.
+def clone_audio_prompts_to_embeddings(output_dir: Path, language: str | None = None) -> None:
+    """Clone local audio prompt files into per-language HF embeddings_v3 as safetensors.
 
-    This allows local voice prompts under ./audio_prompts to be treated like the
-    built-in voice cloning assets in `hf/embeddings_v3/`.
+    The voice state is encoded with the target language's flow_lm, since the
+    embeddings contain language-specific prompt-state KV caches. The root-level
+    English clone is kept for backward compatibility.
     """
 
     prompt_dir = Path("audio_prompts")
@@ -365,28 +389,39 @@ def clone_audio_prompts_to_embeddings(output_dir: Path) -> None:
         print(f"Skipping audio prompt cloning: failed to import pocket_tts ({exc})")
         return
 
+    label = language or DEFAULT_LANGUAGE
+
     try:
-        model = TTSModel.load_model()
+        model = TTSModel.load_model(language=language)
     except Exception as exc:
         print(f"Skipping audio prompt cloning: failed to load pocket-tts model ({exc})")
         return
 
-    dest_dir = output_dir / "embeddings_v3"
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    def _clone_into(dest_dir: Path, model) -> None:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for audio_file in audio_files:
+            dest_safetensors = dest_dir / f"{audio_file.stem}.safetensors"
+            try:
+                if audio_file.suffix.lower() == ".safetensors":
+                    shutil.copyfile(audio_file, dest_safetensors)
+                    print(f"Copied existing safetensors prompt: {audio_file.name}")
+                else:
+                    voice_state = model.get_state_for_audio_prompt(str(audio_file))
+                    export_model_state(voice_state, str(dest_safetensors))
+                    print(f"Exported audio prompt state: {dest_safetensors}")
+                _convert_safetensor_to_raw(dest_safetensors)
+            except Exception as exc:
+                print(f"Failed to clone audio prompt {audio_file.name}: {exc}")
 
-    for audio_file in audio_files:
-        dest_safetensors = dest_dir / f"{audio_file.stem}.safetensors"
+    _clone_into(output_dir / label / "embeddings_v3", model)
+
+    if label != DEFAULT_LANGUAGE:
         try:
-            if audio_file.suffix.lower() == ".safetensors":
-                shutil.copyfile(audio_file, dest_safetensors)
-                print(f"Copied existing safetensors prompt: {audio_file.name}")
-            else:
-                voice_state = model.get_state_for_audio_prompt(str(audio_file))
-                export_model_state(voice_state, str(dest_safetensors))
-                print(f"Exported audio prompt state: {dest_safetensors}")
-            _convert_safetensor_to_raw(dest_safetensors)
+            legacy_model = TTSModel.load_model(language=DEFAULT_LANGUAGE)
         except Exception as exc:
-            print(f"Failed to clone audio prompt {audio_file.name}: {exc}")
+            print(f"Skipping legacy root clone: failed to load default model ({exc})")
+            return
+        _clone_into(output_dir / "embeddings_v3", legacy_model)
 
 
 def _model_label(language: str | None, config: str | None) -> str:
@@ -403,12 +438,12 @@ def run_export_scripts(language: str | None, config: str | None, output_dir: Pat
 
     if not skip_embeddings:
         token = _load_hf_token()
-        download_voice_embeddings(REPO_ID, OUTPUT_DIR, token)
+        download_voice_embeddings(_model_label(language, config), OUTPUT_DIR, token)
         download_reference_sample(REPO_ID, OUTPUT_DIR, token)
     else:
         print("Skipping voice embeddings and reference sample download")
 
-    clone_audio_prompts_to_embeddings(OUTPUT_DIR)
+    clone_audio_prompts_to_embeddings(OUTPUT_DIR, _model_label(language, config))
 
     env = os.environ.copy()
     env["PYTHONPATH"] = "." + os.pathsep + env.get("PYTHONPATH", "")
@@ -465,7 +500,11 @@ def run_quantization(output_dir: Path) -> None:
 
 def run_full_validation(onnx_dir: Path) -> None:
     print("\n--- Running full contract validation ---")
-    subprocess.run([sys.executable, "-m", "scripts.validate_onnx_contracts", "--onnx-dir", str(onnx_dir)], check=True)
+    cmd = [sys.executable, "-m", "scripts.validate_onnx_contracts", "--onnx-dir", str(onnx_dir)]
+    language_tokenizer_json = onnx_dir.parent / TOKENIZER_JSON_FILENAME
+    if language_tokenizer_json.exists():
+        cmd += ["--tokenizer-json", str(language_tokenizer_json)]
+    subprocess.run(cmd, check=True)
     print("Full contract validation succeeded")
 
 
@@ -480,10 +519,23 @@ def print_summary() -> None:
         path = OUTPUT_DIR / filename
         if path.exists():
             output_files.append(path)
+    for bundle_dir in OUTPUT_DIR.iterdir():
+        if not bundle_dir.is_dir():
+            continue
+        for filename in (TOKENIZER_JSON_FILENAME, TOKENIZER_CONFIG_FILENAME):
+            path = bundle_dir / filename
+            if path.exists():
+                output_files.append(path)
     for subdir_name in ("embeddings", "embeddings_v2", "embeddings_v3"):
         subdir = OUTPUT_DIR / subdir_name
         if subdir.exists():
             output_files.extend(sorted(path for path in subdir.iterdir() if path.is_file()))
+    for bundle_dir in OUTPUT_DIR.iterdir():
+        if not bundle_dir.is_dir():
+            continue
+        embeddings_dir = bundle_dir / "embeddings_v3"
+        if embeddings_dir.exists():
+            output_files.extend(sorted(path for path in embeddings_dir.iterdir() if path.is_file()))
     output_files.extend(sorted(OUTPUT_DIR.glob("*.wav")))
 
     for path in sorted(output_files):
@@ -507,8 +559,9 @@ if __name__ == "__main__":
     install_check()
     download_weights()
     export_hf_readme()
-    export_tokenizer_json()
+    export_tokenizer_json(WEIGHTS_DIR / TOKENIZER_MODEL_FILENAME, OUTPUT_DIR)
     run_export_scripts(language=args.language, config=args.config, output_dir=final_output_dir, exact=args.exact, skip_embeddings=args.skip_embeddings)
+    export_language_tokenizer_jsons()
 
     if args.quantize:
         run_quantization(output_dir=final_output_dir)
