@@ -93,6 +93,37 @@ def _patched_rope_offset(self, state, batch_size, device):
     return _orig_rope_offset(self, state, batch_size, device)
 _LinearKVCacheBackend.rope_offset = _patched_rope_offset
 
+# v2.1.0: the original StreamingMultiheadAttention.forward (used by the mimi
+# decoder) calls _LinearKVCacheBackend.append_and_get, which goes through the
+# module-level complete_kv(). That function converts the cache offset to a
+# Python int (offset.item()) and writes the cache in place. The legacy
+# TorchScript tracer bakes the trace-time offset (0) into the graph, so every
+# decode call would write the KV cache at position 0 - correct only for the
+# first call, then the audio collapses. Patch append_and_get with the same
+# out-of-place, tensor-offset logic as patched_sma_complete_kv (value-identical
+# to the original, but traceable).
+def patched_append_and_get(self, k, v, state):
+    if state is None:
+        k_attn = k.permute(0, 2, 1, 3)
+        v_attn = v.permute(0, 2, 1, 3)
+        pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
+        pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+        offset = torch.zeros(k_attn.shape[0], device=k_attn.device, dtype=torch.long)
+        return k_attn, v_attn, pos_k, offset
+    current_offset = state["offset"]
+    cache = state["cache"]
+    new_cache = cache.clone()
+    new_cache[0, :, current_offset : current_offset + k.shape[1]] = k
+    new_cache[1, :, current_offset : current_offset + v.shape[1]] = v
+    state["cache"] = new_cache
+    valid = new_cache[:, :, : current_offset + k.shape[1]]
+    k_attn = valid[0].permute(0, 2, 1, 3)
+    v_attn = valid[1].permute(0, 2, 1, 3)
+    pos_k = torch.arange(k_attn.shape[2], device=k_attn.device, dtype=torch.long)
+    pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+    return k_attn, v_attn, pos_k, state["offset"]
+_LinearKVCacheBackend.append_and_get = patched_append_and_get
+
 import os
 from pathlib import Path
 import onnxruntime as ort
@@ -102,6 +133,13 @@ from pocket_tts.default_parameters import DEFAULT_LANGUAGE
 from pocket_tts.modules.stateful_module import init_states
 from onnx_export.bundle_metadata import write_bundle_metadata
 from onnx_export.export_utils import get_state_structure, flatten_state, unflatten_state
+
+# Decoder transformer cache length in *transformer steps* (200Hz), not latent
+# frames: MimiWrapper increments by seq_len * 16 per decode call, so a 1000-slot
+# cache only covered ~62 latent frames (~5s) and longer chunks wrote past the
+# cache and collapsed to garbage.  4096 slots cover ~256 latent frames (~20s
+# per text chunk) and match the attention mask MAX_COLS cap.
+MIMI_STATIC_SEQ_LEN = 4096
 
 from pocket_tts.modules.conv import StreamingConv1d, StreamingConvTranspose1d
 def patched_conv1d_forward(self, x, model_state: dict | None):
@@ -247,18 +285,16 @@ def export_models(output_dir="onnx_models", language=DEFAULT_LANGUAGE, config=No
     )
     print(f"Text Conditioner exported to {conditioner_onnx_path}")
     
-    # Initialize state with static size sufficient for expected usage
-    # 1000 tokens covers ~40s audio or long text prompts
-    STATIC_SEQ_LEN = 1000
-    
+    # Initialize state with static size sufficient for expected usage.
+    # See module-level MIMI_STATIC_SEQ_LEN comment for the 16x step multiplier.
     flow_lm_onnx_path = None
-    
+
     # ---------------------------------------------------------
     # Export Mimi
     # ---------------------------------------------------------
     print("Exporting Mimi...")
-    
-    mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=STATIC_SEQ_LEN)
+
+    mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=MIMI_STATIC_SEQ_LEN)
     mimi_structure = get_state_structure(mimi_state)
     flat_mimi_state = flatten_state(mimi_state)
     write_bundle_metadata(output_dir, tts_model, bundle_name=bundle_name, mimi_state=mimi_state)
@@ -353,7 +389,7 @@ def verify_export(flow_lm_path, mimi_path, tts_model, output_dir="onnx_models", 
         # ---------------------------------------------------------
         ort_session_mimi = ort.InferenceSession(mimi_path)
         
-        mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=1000)
+        mimi_state = init_states(tts_model.mimi, batch_size=1, sequence_length=MIMI_STATIC_SEQ_LEN)
         flat_mimi_state = flatten_state(mimi_state)
         
         latent = torch.randn(1, 1, tts_model.flow_lm.ldim)

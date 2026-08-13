@@ -1061,7 +1061,10 @@ async function main(): Promise<void> {
       };
     }
 
-    const builtinStateJson = path.join(HF_DIR, "embeddings_v3", `${builtinVoice}.json`);
+    const languageEmbeddingsJson = path.join(path.dirname(onnxDir), "embeddings_v3", `${builtinVoice}.json`);
+    const builtinStateJson = fs.existsSync(languageEmbeddingsJson)
+      ? languageEmbeddingsJson
+      : path.join(HF_DIR, "embeddings_v3", `${builtinVoice}.json`);
     if (!fs.existsSync(builtinStateJson)) {
       throw new Error(`Missing v3 built-in voice state for ${builtinVoice}: ${builtinStateJson}`);
     }

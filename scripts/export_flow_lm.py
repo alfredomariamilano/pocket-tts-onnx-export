@@ -268,8 +268,13 @@ def main():
     tts = TTSModel.load_model(language=args.language, config=args.config).cpu().eval()
     bundle_name = Path(args.config).stem if args.config is not None else args.language
             
-    # Init patched state
-    STATIC_SEQ_LEN = 1000
+    # Init patched state.
+    # KV cache length matches the mimi decoder (MIMI_STATIC_SEQ_LEN) and the
+    # attention mask MAX_COLS cap: flow offset = voice priming + text tokens +
+    # AR frames.  1000 slots capped chunks to ~800 frames and overflowed with
+    # long voice prompts or high max_frames; 4096 (~5.5 min per chunk) removes
+    # the cap entirely.
+    STATIC_SEQ_LEN = 4096
     state = init_states(tts.flow_lm, batch_size=1, sequence_length=STATIC_SEQ_LEN)
     structure = get_state_structure(state)
     flat_state = flatten_state(state)
